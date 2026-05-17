@@ -1,0 +1,16 @@
+{
+  "detection_adapter": "mock",
+  "api_host": "127.0.0.1",
+  "api_port": 8080,
+  "congestion_threshold": 10,
+  "flow_window_size": 30,
+  "cameras": [
+    {
+      "camera_id": "cam-001",
+      "source_type": "synthetic",
+      "width": 1920,
+      "height": 1080,
+      "fps": 10
+    }
+  ]
+}
