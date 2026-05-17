@@ -1,0 +1,18 @@
+{
+  "detection_adapter": "onnx",
+  "detection_model": "yolov8n.onnx",
+  "api_host": "0.0.0.0",
+  "api_port": 8080,
+  "congestion_threshold": 8,
+  "flow_window_size": 30,
+  "cameras": [
+    {
+      "camera_id": "cam-intersection-01",
+      "source_type": "rtsp",
+      "source_uri": "rtsp://192.168.1.100:554/stream",
+      "width": 1920,
+      "height": 1080,
+      "fps": 10
+    }
+  ]
+}

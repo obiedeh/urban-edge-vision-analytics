@@ -1,0 +1,15 @@
+{
+  "camera_id": "cam-intersection-01",
+  "event_type": "red_light_violation",
+  "severity": "critical",
+  "vehicle_count": 1,
+  "track_ids": ["a3f9c1"],
+  "confidence": 0.91,
+  "operator_review_recommended": true,
+  "inference_latency_ms": 18.4,
+  "metadata": {
+    "intersection": "Main St & 5th Ave",
+    "direction": "northbound",
+    "phase": "red"
+  }
+}
