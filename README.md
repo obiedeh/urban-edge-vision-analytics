@@ -17,7 +17,7 @@ This repository includes a runnable production-grade skeleton:
 - Inference latency telemetry with p95/p99 tracking
 - FastAPI backend: event ingestion, incident lifecycle, runtime metrics
 - Operator incident workflow: open → under_review → resolved / dismissed
-- Configs for local dev and Jetson Orin deployment
+- Configs for local dev and Jetson Orin deployment planning
 - Test suite: schemas, flow analytics, event lifecycle, API smoke
 
 ---
@@ -59,8 +59,11 @@ tests/        Unit and smoke tests
 
 ## Quick Start
 
+Primary target today: Linux local development with the deterministic mock adapter. Jetson Orin is a planned deployment target after ONNX or TensorRT adapters are implemented and benchmarked.
+
 ```bash
-cd projects/urban-edge-vision-analytics
+git clone https://github.com/obiedeh/urban-edge-vision-analytics.git
+cd urban-edge-vision-analytics
 python -m venv .venv
 source .venv/bin/activate
 pip install -e .[dev]
@@ -105,7 +108,7 @@ See `examples/sample_event.json`.
 
 The current detection adapter is intentionally mocked. That is not a weakness — it is the correct engineering position at this stage.
 
-Real adapters target the same `DetectionAdapter` interface:
+Planned real adapters target the same `DetectionAdapter` interface:
 
 - **ONNX Runtime** — YOLOv8n or RT-DETR-nano, CPU + CUDA
 - **TensorRT** — Jetson Orin optimized engine
@@ -129,11 +132,13 @@ Local dev (mock adapter):
 uvicorn api.main:app --reload --port 8080
 ```
 
-Jetson Orin (ONNX adapter):
+Jetson Orin target path after ONNX adapter implementation:
 
 ```bash
 DETECTION_ADAPTER=onnx uvicorn api.main:app --host 0.0.0.0 --port 8080
 ```
+
+Do not treat the Jetson command as validated until a real ONNX adapter, model file, and benchmark artifact are committed.
 
 ---
 
