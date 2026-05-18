@@ -155,7 +155,7 @@ make install-dev
 make verify
 ```
 
-The current CI gate runs type checks and tests. Ruff is intentionally not enabled in CI yet because the existing tree has pre-existing style findings that should be cleaned up in a separate formatting-only patch.
+The current CI gate runs Ruff linting, type checks, and tests on Ubuntu.
 
 ---
 

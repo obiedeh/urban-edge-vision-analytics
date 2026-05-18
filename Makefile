@@ -1,4 +1,4 @@
-.PHONY: install-dev test typecheck verify
+.PHONY: install-dev lint test typecheck verify
 
 PYTHON ?= .venv/bin/python
 PIP ?= .venv/bin/pip
@@ -12,7 +12,10 @@ install-dev: .venv
 test: .venv
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 $(PYTHON) -m pytest -q
 
+lint: .venv
+	$(PYTHON) -m ruff check api vision events analytics telemetry tests
+
 typecheck: .venv
 	$(PYTHON) -m mypy api vision events analytics telemetry
 
-verify: typecheck test
+verify: lint typecheck test
