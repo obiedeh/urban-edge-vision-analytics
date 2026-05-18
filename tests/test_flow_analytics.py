@@ -1,7 +1,5 @@
 import uuid
 
-import pytest
-
 from analytics.flow import FlowWindow
 from vision.schemas import BoundingBox, InferenceFrame, VehicleClass, VehicleDetection
 

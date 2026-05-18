@@ -1,7 +1,5 @@
 import uuid
-from datetime import datetime, timezone
-
-import pytest
+from datetime import UTC, datetime
 
 from events.schemas import EventType, Severity, TrafficEvent
 from vision.schemas import BoundingBox, InferenceFrame, VehicleClass, VehicleDetection
@@ -41,7 +39,7 @@ def test_traffic_event_defaults():
         camera_id="cam-001",
         event_type=EventType.vehicle_detected,
         severity=Severity.info,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
     )
     assert event.operator_review_recommended is False
     assert event.track_ids == []
