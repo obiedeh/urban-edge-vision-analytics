@@ -167,6 +167,8 @@ python examples/generate_mock_report.py --output examples/mock_inference_report.
 
 The generated report is committed at `examples/mock_inference_report.json`. It proves the current mock-frame pipeline executes and summarizes detections, class counts, and congestion windows. It does not claim real camera accuracy, Jetson latency, or automated enforcement readiness.
 
+For the reviewer-facing deliverables checklist, see [PORTFOLIO_DELIVERABLES.md](PORTFOLIO_DELIVERABLES.md).
+
 ---
 
 ## Production Roadmap
