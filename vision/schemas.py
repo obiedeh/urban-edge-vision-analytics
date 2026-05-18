@@ -1,9 +1,11 @@
 from __future__ import annotations
-from enum import Enum
+
+from enum import StrEnum
+
 from pydantic import BaseModel, Field
 
 
-class VehicleClass(str, Enum):
+class VehicleClass(StrEnum):
     car = "car"
     truck = "truck"
     motorcycle = "motorcycle"

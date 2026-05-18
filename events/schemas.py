@@ -1,10 +1,12 @@
 from __future__ import annotations
+
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
+
 from pydantic import BaseModel, Field
 
 
-class EventType(str, Enum):
+class EventType(StrEnum):
     vehicle_detected = "vehicle_detected"
     red_light_violation = "red_light_violation"
     unsafe_turn = "unsafe_turn"
@@ -13,7 +15,7 @@ class EventType(str, Enum):
     wrong_way = "wrong_way"
 
 
-class Severity(str, Enum):
+class Severity(StrEnum):
     info = "info"
     warning = "warning"
     critical = "critical"
@@ -32,7 +34,7 @@ class TrafficEvent(BaseModel):
     metadata: dict = Field(default_factory=dict)
 
 
-class IncidentStatus(str, Enum):
+class IncidentStatus(StrEnum):
     open = "open"
     under_review = "under_review"
     resolved = "resolved"
