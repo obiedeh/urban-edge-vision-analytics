@@ -1,0 +1,32 @@
+{
+  "adapter": "MockDetectionAdapter",
+  "class_counts": {
+    "bus": 4,
+    "car": 4,
+    "cyclist": 2,
+    "motorcycle": 2,
+    "pedestrian": 1,
+    "truck": 4,
+    "unknown": 2
+  },
+  "congestion_windows": 4,
+  "frames_processed": 8,
+  "per_frame_detection_counts": [
+    2,
+    0,
+    4,
+    4,
+    4,
+    3,
+    1,
+    1
+  ],
+  "safety_boundary": "synthetic observability evidence only; no automated enforcement",
+  "source": "synthetic-fixed-frames",
+  "total_detections": 19,
+  "unsupported_claims": [
+    "real camera accuracy",
+    "Jetson hardware latency",
+    "automated enforcement readiness"
+  ]
+}
