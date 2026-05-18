@@ -1,7 +1,8 @@
 from __future__ import annotations
+
 import time
 import uuid
-from typing import Iterator
+from collections.abc import Iterator
 
 from .schemas import InferenceFrame
 

@@ -1,8 +1,9 @@
 from __future__ import annotations
-import uuid
-from datetime import datetime, timezone
 
-from .schemas import IntersectionIncident, IncidentStatus, Severity, TrafficEvent
+import uuid
+from datetime import UTC, datetime
+
+from .schemas import IncidentStatus, IntersectionIncident, Severity, TrafficEvent
 
 
 class EventStore:
@@ -29,7 +30,7 @@ class EventStore:
         severity: Severity,
         summary: str = "",
     ) -> IntersectionIncident:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         incident = IntersectionIncident(
             incident_id=str(uuid.uuid4()),
             camera_id=camera_id,
@@ -48,11 +49,13 @@ class EventStore:
         incident = self._incidents.get(incident_id)
         if not incident:
             return None
-        updated = incident.model_copy(update={
-            "status": status,
-            "operator_notes": notes,
-            "updated_at": datetime.now(timezone.utc),
-        })
+        updated = incident.model_copy(
+            update={
+                "status": status,
+                "operator_notes": notes,
+                "updated_at": datetime.now(UTC),
+            }
+        )
         self._incidents[incident_id] = updated
         return updated
 

@@ -1,11 +1,12 @@
 from __future__ import annotations
+
 import time
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from events.lifecycle import EventStore
 from events.schemas import EventType, IncidentStatus, IntersectionIncident, Severity, TrafficEvent
@@ -51,11 +52,11 @@ class EventIngestRequest(BaseModel):
     event_type: EventType
     severity: Severity
     vehicle_count: int = 0
-    track_ids: list[str] = []
+    track_ids: list[str] = Field(default_factory=list)
     confidence: float = 1.0
     operator_review_recommended: bool = False
     inference_latency_ms: float | None = None
-    metadata: dict = {}
+    metadata: dict = Field(default_factory=dict)
 
 
 @app.post("/events", status_code=201)
@@ -65,7 +66,7 @@ def ingest_event(req: EventIngestRequest) -> TrafficEvent:
         camera_id=req.camera_id,
         event_type=req.event_type,
         severity=req.severity,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         vehicle_count=req.vehicle_count,
         track_ids=req.track_ids,
         confidence=req.confidence,
