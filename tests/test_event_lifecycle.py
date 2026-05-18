@@ -1,19 +1,20 @@
 import uuid
-from datetime import datetime, timezone
-
-import pytest
+from datetime import UTC, datetime
 
 from events.lifecycle import EventStore
 from events.schemas import EventType, IncidentStatus, Severity, TrafficEvent
 
 
-def _make_event(camera_id: str = "cam-001", event_type: EventType = EventType.vehicle_detected) -> TrafficEvent:
+def _make_event(
+    camera_id: str = "cam-001",
+    event_type: EventType = EventType.vehicle_detected,
+) -> TrafficEvent:
     return TrafficEvent(
         event_id=str(uuid.uuid4()),
         camera_id=camera_id,
         event_type=event_type,
         severity=Severity.info,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
     )
 
 
