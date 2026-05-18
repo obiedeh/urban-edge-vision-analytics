@@ -148,6 +148,15 @@ Do not treat the Jetson command as validated until a real ONNX adapter, model fi
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest
 ```
 
+For the Linux validation path used by CI:
+
+```bash
+make install-dev
+make verify
+```
+
+The current CI gate runs type checks and tests. Ruff is intentionally not enabled in CI yet because the existing tree has pre-existing style findings that should be cleaned up in a separate formatting-only patch.
+
 ---
 
 ## Production Roadmap
