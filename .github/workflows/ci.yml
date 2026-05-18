@@ -21,8 +21,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
       - name: Lint
-        run: ruff check api vision events analytics telemetry tests
+        run: ruff check api vision events analytics telemetry tests examples
       - name: Type check
         run: mypy api vision events analytics telemetry
       - name: Test
         run: pytest -q
+      - name: Generate mock inference evidence
+        run: python examples/generate_mock_report.py --output examples/mock_inference_report.json
+      - name: Validate evidence artifacts
+        run: test -s examples/mock_inference_report.json

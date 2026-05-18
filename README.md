@@ -157,6 +157,16 @@ make verify
 
 The current CI gate runs Ruff linting, type checks, and tests on Ubuntu.
 
+## Mock Evidence Artifact
+
+Generate deterministic synthetic evidence from the mock detection adapter:
+
+```bash
+python examples/generate_mock_report.py --output examples/mock_inference_report.json
+```
+
+The generated report is committed at `examples/mock_inference_report.json`. It proves the current mock-frame pipeline executes and summarizes detections, class counts, and congestion windows. It does not claim real camera accuracy, Jetson latency, or automated enforcement readiness.
+
 ---
 
 ## Production Roadmap
