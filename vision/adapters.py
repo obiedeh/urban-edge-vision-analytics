@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import random
 import time
 import uuid
@@ -39,4 +40,6 @@ class MockDetectionAdapter(DetectionAdapter):
             for _ in range(n)
         ]
         latency_ms = (time.perf_counter() - start) * 1000
-        return frame.model_copy(update={"detections": detections, "inference_latency_ms": latency_ms})
+        return frame.model_copy(
+            update={"detections": detections, "inference_latency_ms": latency_ms}
+        )
