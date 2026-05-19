@@ -1,0 +1,29 @@
+flowchart TB
+    subgraph Local["Implemented local mode"]
+        api["FastAPI"]
+        synthetic["Synthetic frame source"]
+        mock["Mock detection adapter"]
+        tests["pytest"]
+    end
+
+    subgraph ModelPath["Planned model adapter mode"]
+        opencv["OpenCV video source"]
+        onnx["ONNX Runtime detector"]
+        sample["Sample-video evidence"]
+    end
+
+    subgraph Edge["Planned Jetson edge mode"]
+        rtsp["RTSP source"]
+        trt["TensorRT adapter"]
+        benchmark["Jetson benchmark artifact"]
+    end
+
+    subgraph Review["Operator-facing outputs"]
+        incidents["Incident lifecycle"]
+        report["Evidence report"]
+        human["Human review boundary"]
+    end
+
+    Local --> ModelPath
+    ModelPath --> Edge
+    Edge --> Review

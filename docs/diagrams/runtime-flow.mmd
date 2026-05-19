@@ -1,0 +1,12 @@
+flowchart LR
+    command["Start API or generate mock report"]
+    source["Load synthetic frames"]
+    detect["Run mock detection adapter"]
+    flow["Update flow window analytics"]
+    event["Create traffic events"]
+    incident["Update incident lifecycle"]
+    metrics["Track p95 / p99 latency"]
+    output["Expose API or write mock report"]
+
+    command --> source --> detect --> flow --> event --> incident --> output
+    detect --> metrics --> output

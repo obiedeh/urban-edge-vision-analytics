@@ -1,86 +1,53 @@
 # Architecture
 
-```text
-Camera / Video Source
-        |
-        v
-  Source Loader  ->  Detection Adapter  ->  Flow Analytics  ->  Event Store
-        |                   |                     |                  |
-   (synthetic,          (Mock / ONNX /       (FlowWindow,       (TrafficEvent,
-    video file,          TensorRT /            congestion,        Incident,
-    RTSP stream)         NIM endpoint)         class counts)      operator review)
-                                                                      |
-                                                                      v
-                                                               FastAPI Backend
-                                                          (events, incidents, metrics)
-```
+## System Purpose
 
-## Source Loader
+This repository is the applied edge vision intelligence layer in the portfolio. It converts frame sources, mock or future model detections, and flow analytics into traffic events, incidents, metrics, and human-reviewed infrastructure evidence.
 
-`vision/source_loader.py` yields `InferenceFrame` records. Current source:
+## Current Implementation Status
 
-- `synthetic_frames` — deterministic synthetic frames for dev/test
+- **Implemented:** FastAPI backend, Pydantic schemas, deterministic mock detection adapter, synthetic frame source, flow analytics, incident lifecycle, telemetry metrics, tests, and mock report generation.
+- **Mock validation path:** synthetic frames and mock detections prove the event, flow, telemetry, and reporting path.
+- **Planned Jetson deployment:** ONNX Runtime adapter, TensorRT adapter, RTSP source, and Jetson benchmark artifact.
+- **Future hardware validation:** real camera/video samples and sustained edge runtime evidence.
 
-Planned sources:
+## Main Components
 
-- `VideoFileSource` — OpenCV-backed video file replay
-- `RtspSource` — live RTSP stream ingestion
-- `MockReplaySource` — recorded frame replay with timestamps
+- `vision/`: frame schemas, source loading, and detection adapter interface.
+- `analytics/`: flow window analytics and congestion summaries.
+- `events/`: traffic event and incident lifecycle models.
+- `api/`: FastAPI routes for events, incidents, metrics, and runtime snapshots.
+- `telemetry/`: latency and runtime metric helpers.
+- `examples/`: mock inference report and sample payloads.
+- `docs/diagrams/`: Mermaid architecture views for reviewer inspection.
 
-## Detection Adapter
+## Runtime Flow
 
-`vision/adapters.py` defines `DetectionAdapter`, a single-method interface:
+The current runnable path uses deterministic synthetic frames and the mock detection adapter. The pipeline converts detections into flow analytics and events, stores incidents, exposes runtime metrics, and can generate a mock evidence report.
 
-```python
-def infer(self, frame: InferenceFrame) -> InferenceFrame
-```
+## Data / Telemetry Flow
 
-Current adapter:
+Frame metadata becomes detections. Detections become vehicle counts, congestion signals, traffic events, and incident state. Latency metrics and mock report artifacts summarize the run. Mock outputs do not prove real camera accuracy.
 
-- `MockDetectionAdapter` — seeded random detections, zero dependencies
+## Deployment Modes
 
-Planned adapters:
+- **Local development:** FastAPI, synthetic frame source, mock adapter, tests, and mock report generation.
+- **Planned model adapter mode:** OpenCV video source and ONNX Runtime detector.
+- **Planned Jetson deployment:** TensorRT adapter, RTSP source, runtime metrics, and benchmark artifact.
+- **Future operator review:** human-reviewed infrastructure intelligence, not automated enforcement.
 
-- `OnnxDetectionAdapter` — YOLO/RT-DETR via ONNX Runtime (CPU + GPU)
-- `TensorRTAdapter` — TensorRT engine inference for Jetson Orin
-- `NimDetectionAdapter` — NVIDIA NIM OpenAI-compatible detection endpoint
+## Evidence Artifacts
 
-## Flow Analytics
+- Existing mock report: `examples/mock_inference_report.json`.
+- Reviewer placeholders: `artifacts/sample-inputs/`, `artifacts/sample-outputs/`, `artifacts/logs/`, and `artifacts/reports/`.
+- Diagram sources: `docs/diagrams/`.
 
-`analytics/flow.py` maintains a sliding `FlowWindow` per camera:
+## Known Limitations
 
-- vehicle count from latest frame
-- congestion threshold crossing
-- mean inference latency across window
-- per-class vehicle counts
+- The mock detector does not prove real model accuracy.
+- The repo does not claim real traffic-camera deployment.
+- Jetson performance remains planned until benchmark artifacts are committed.
 
-`analytics/metrics.py` tracks aggregate pipeline metrics across the session.
+## Next Validation Step
 
-## Event Store
-
-`events/lifecycle.py` manages in-memory `TrafficEvent` and `IntersectionIncident` state.
-
-Events carry severity, event type, track IDs, confidence, and operator review flags.
-
-Incidents group related events for operator review with status lifecycle:
-`open` → `under_review` → `resolved` / `dismissed`
-
-## FastAPI Backend
-
-`api/main.py` exposes:
-
-- `GET /health` — liveness check
-- `GET /runtime` — uptime, camera count, event count, incident count
-- `GET /metrics/inference` — latency p95/p99, sample count, dropped frames
-- `POST /events` — ingest a traffic event
-- `GET /events` — list events (filterable by camera_id)
-- `GET /events/{id}` — get single event
-- `POST /incidents` — open an incident from events
-- `GET /incidents` — list incidents (filterable by status)
-- `PATCH /incidents/{id}` — update incident status and operator notes
-
-## Telemetry
-
-`telemetry/metrics.py` — inference latency tracking with p95/p99
-
-`telemetry/runtime.py` — uptime, camera count, event count snapshot
+Add one reproducible sample-video pipeline artifact with an ONNX adapter plan, runtime metrics, limitations, and reviewable output.
