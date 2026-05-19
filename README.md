@@ -6,9 +6,27 @@ This project turns camera frames, vehicle detections, and flow analytics into st
 
 ---
 
+## Core Stack
+
+**Implemented:** Python · FastAPI · Pydantic · mock detection adapter · synthetic frame source · flow analytics · Pytest
+
+**Planned / integration path:** OpenCV · ONNX Runtime · TensorRT · RTSP source · Jetson benchmark artifact
+
+<p>
+  <img src="https://img.shields.io/badge/Python-3.x-blue" alt="Python" />
+  <img src="https://img.shields.io/badge/FastAPI-API-009688" alt="FastAPI" />
+  <img src="https://img.shields.io/badge/Pydantic-schemas-E92063" alt="Pydantic" />
+  <img src="https://img.shields.io/badge/OpenCV-integration%20path-5C3EE8" alt="OpenCV integration path" />
+  <img src="https://img.shields.io/badge/ONNX%20Runtime-planned-005CED" alt="ONNX Runtime planned" />
+  <img src="https://img.shields.io/badge/TensorRT-planned-76B900" alt="TensorRT planned" />
+  <img src="https://img.shields.io/badge/Pytest-tested-brightgreen" alt="Pytest" />
+</p>
+
+---
+
 ## What Works Now
 
-This repository includes a runnable production-grade skeleton:
+This repository includes a runnable engineering scaffold:
 
 - Pydantic schemas for inference frames, vehicle detections, traffic events, and incidents
 - Mock detection adapter — seeded, deterministic, zero model dependencies
