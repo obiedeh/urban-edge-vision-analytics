@@ -1,0 +1,13 @@
+flowchart LR
+    frames["Frame metadata"]
+    detections["Vehicle detections\nmock today"]
+    analytics["Flow analytics\ncounts, congestion"]
+    events["Traffic events"]
+    incidents["Incident records"]
+    telemetry["Latency and runtime metrics"]
+    artifacts["Mock report and artifacts"]
+    review["Human review"]
+
+    frames --> detections --> analytics --> events --> incidents --> artifacts
+    detections --> telemetry --> artifacts
+    artifacts --> review

@@ -1,0 +1,40 @@
+flowchart TB
+    subgraph Inputs["Frame sources"]
+        synthetic["Synthetic frame source\nimplemented"]
+        video["Video file source\nplanned"]
+        rtsp["RTSP source\nplanned"]
+    end
+
+    subgraph Vision["Edge vision pipeline"]
+        adapter["Detection adapter\nmock implemented"]
+        onnx["ONNX Runtime adapter\nplanned"]
+        trt["TensorRT adapter\nplanned"]
+        flow["Flow analytics"]
+        telemetry["Inference telemetry"]
+    end
+
+    subgraph Backend["Operational backend"]
+        api["FastAPI"]
+        events["Traffic events"]
+        incidents["Incident lifecycle"]
+        metrics["Runtime metrics"]
+    end
+
+    subgraph Review["Evidence and human review"]
+        report["Mock evidence report"]
+        operator["Operator review"]
+        artifacts["artifacts/ placeholders"]
+    end
+
+    synthetic --> adapter
+    video -. planned .-> onnx
+    rtsp -. planned .-> trt
+    adapter --> flow
+    onnx -. planned .-> flow
+    trt -. planned .-> flow
+    flow --> events --> incidents
+    telemetry --> metrics
+    incidents --> api
+    metrics --> api
+    api --> report --> operator
+    report --> artifacts
