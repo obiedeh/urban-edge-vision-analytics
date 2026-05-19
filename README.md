@@ -37,6 +37,14 @@ This project turns camera frames, vehicle detections, and flow analytics into st
 
 ---
 
+## Recommended GitHub About
+
+- **Suggested short description:** Edge vision intelligence system for infrastructure events using frame analysis, operational summaries, and edge deployment patterns.
+- **Suggested topics/tags:** `edge-ai`, `computer-vision`, `infrastructure`, `video-analytics`, `operational-ai`, `event-detection`
+- **Positioning category:** Core
+
+---
+
 ## What Works Now
 
 This repository includes a runnable engineering scaffold:
