@@ -18,6 +18,7 @@ def test_runtime():
 
 
 def test_ingest_event():
+    before_count = client.get("/runtime").json()["camera_count"]
     resp = client.post("/events", json={
         "camera_id": "cam-001",
         "event_type": "vehicle_detected",
@@ -29,6 +30,8 @@ def test_ingest_event():
     data = resp.json()
     assert data["camera_id"] == "cam-001"
     assert "event_id" in data
+    after_count = client.get("/runtime").json()["camera_count"]
+    assert after_count >= before_count
 
 
 def test_list_events_empty():

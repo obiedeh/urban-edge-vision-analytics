@@ -41,3 +41,5 @@ class InferenceFrame(BaseModel):
     source_type: str = "synthetic"
     detections: list[VehicleDetection] = Field(default_factory=list)
     inference_latency_ms: float | None = None
+    metadata: dict = Field(default_factory=dict)
+    frame_bytes: bytes | None = Field(default=None, exclude=True)
