@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import subprocess
 import time
 import uuid
@@ -116,6 +117,8 @@ def iter_rtsp_frames(
     connection: CameraConnection,
     settings: LivePipelineSettings,
 ):
+    if shutil.which("ffmpeg") is None:
+        raise RuntimeError("ffmpeg was not found on PATH. Install ffmpeg to read camera frames.")
     command = build_ffmpeg_frame_command(connection, settings)
     frame_size = settings.width * settings.height * 3
     process = subprocess.Popen(command, stdout=subprocess.PIPE)
@@ -151,13 +154,21 @@ def iter_rtsp_frames(
             process.kill()
 
 
-def frame_to_event_payload(frame: InferenceFrame, window: FlowWindow) -> dict:
+def frame_to_event_payload(
+    frame: InferenceFrame,
+    window: FlowWindow,
+    was_congested: bool = False,
+) -> dict:
     vehicle_count = window.vehicle_count
     congested = window.is_congested
     if congested:
         event_type = EventType.congestion_onset
         severity = Severity.warning
         operator_review_recommended = True
+    elif was_congested:
+        event_type = EventType.congestion_clear
+        severity = Severity.info
+        operator_review_recommended = False
     else:
         event_type = EventType.vehicle_detected
         severity = Severity.info
@@ -193,12 +204,15 @@ def run_live_pipeline(
         congestion_threshold=settings.congestion_threshold,
     )
     event_count = 0
+    was_congested = False
     events_url = f"{settings.api_url.rstrip('/')}/events"
     with httpx.Client(timeout=10.0) as client:
         for frame in iter_rtsp_frames(connection, settings):
             inferred = detector.infer(frame)
             window.push(inferred)
-            response = client.post(events_url, json=frame_to_event_payload(inferred, window))
+            payload = frame_to_event_payload(inferred, window, was_congested=was_congested)
+            was_congested = window.is_congested
+            response = client.post(events_url, json=payload)
             response.raise_for_status()
             event_count += 1
             print(
@@ -244,7 +258,7 @@ def _parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = _parse_args()
-    connection = verify_camera_connection(args.config, require_ffplay=True)
+    connection = verify_camera_connection(args.config, require_ffplay=False)
     settings = LivePipelineSettings(
         width=args.width,
         height=args.height,

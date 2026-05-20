@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from events.lifecycle import EventStore
 from events.schemas import EventType, IncidentStatus, IntersectionIncident, Severity, TrafficEvent
@@ -82,6 +82,12 @@ class EventIngestRequest(BaseModel):
     operator_review_recommended: bool = False
     inference_latency_ms: float | None = None
     metadata: dict = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def enforce_review_on_critical(self) -> EventIngestRequest:
+        if self.severity == Severity.critical:
+            self.operator_review_recommended = True
+        return self
 
 
 @app.post("/events", status_code=201)

@@ -94,3 +94,38 @@ def test_inference_metrics():
     resp = client.get("/metrics/inference")
     assert resp.status_code == 200
     assert "sample_count" in resp.json()
+
+
+def test_list_incidents_empty():
+    resp = client.get("/incidents")
+    assert resp.status_code == 200
+    assert isinstance(resp.json(), list)
+
+
+def test_list_incidents_by_status():
+    event_resp = client.post("/events", json={
+        "camera_id": "cam-004",
+        "event_type": "wrong_way",
+        "severity": "critical",
+    })
+    event_id = event_resp.json()["event_id"]
+    client.post("/incidents", json={
+        "camera_id": "cam-004",
+        "event_ids": [event_id],
+        "severity": "critical",
+        "summary": "Wrong-way driver",
+    })
+    resp = client.get("/incidents?status=open")
+    assert resp.status_code == 200
+    assert all(i["status"] == "open" for i in resp.json())
+
+
+def test_critical_event_auto_sets_operator_review():
+    resp = client.post("/events", json={
+        "camera_id": "cam-005",
+        "event_type": "red_light_violation",
+        "severity": "critical",
+        "operator_review_recommended": False,
+    })
+    assert resp.status_code == 201
+    assert resp.json()["operator_review_recommended"] is True
