@@ -1,0 +1,11 @@
+{
+  "camera_id": "intersection-north-01",
+  "model_type": "hikvision",
+  "host": "192.168.1.50",
+  "port": 554,
+  "channel": 1,
+  "stream": "01",
+  "username_env": "CAMERA_USERNAME",
+  "password_env": "CAMERA_PASSWORD",
+  "rtsp_transport": "tcp"
+}

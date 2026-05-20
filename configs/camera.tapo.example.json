@@ -1,0 +1,10 @@
+{
+  "camera_id": "tapo-local-example",
+  "model_type": "tapo",
+  "host": "192.168.1.50",
+  "port": 554,
+  "stream": "1",
+  "username_env": "CAMERA_USERNAME",
+  "password_env": "CAMERA_PASSWORD",
+  "rtsp_transport": "tcp"
+}

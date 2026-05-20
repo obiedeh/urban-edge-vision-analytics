@@ -151,6 +151,8 @@ Planned real adapters target the same `DetectionAdapter` interface:
 
 - **ONNX Runtime** — YOLOv8n or RT-DETR-nano, CPU + CUDA
 - **TensorRT** — Jetson Orin optimized engine
+- **NVIDIA VSS** — video search and summarization over camera/video evidence
+- **NVIDIA Cosmos / world model path** — scene understanding and world-state reasoning
 - **NVIDIA NIM** — hosted detection endpoint via OpenAI-compatible API
 
 Install vision extras when a real model is available:
@@ -161,6 +163,13 @@ pip install -e .[vision]
 
 Do not hardwire inference to one backend. Keep adapters replaceable.
 
+The current live camera path is intentionally split into two layers:
+
+- **Ingress:** Tapo RTSP feed validated with `ffplay`, sampled by FFmpeg.
+- **Inference:** current mock detector now, NVIDIA VSS / Cosmos / TensorRT / NIM adapter later.
+
+That keeps the camera transport independent from the NVIDIA model stack.
+
 ---
 
 ## Deployment Paths
@@ -170,6 +179,40 @@ Local dev (mock adapter):
 ```bash
 uvicorn api.main:app --reload --port 8080
 ```
+
+Real camera feed validation:
+
+```bash
+cp configs/camera.local.example.json configs/camera.local.json
+export CAMERA_USERNAME='camera-user'
+export CAMERA_PASSWORD='camera-password'
+.venv/bin/python -m vision.camera_profiles --config configs/camera.local.json --dry-run
+.venv/bin/python -m vision.camera_profiles --config configs/camera.local.json --ffplay
+```
+
+Supported `model_type` values are `generic_rtsp`, `hikvision`, `dahua`, `amcrest`, `axis`, `reolink`, `tapo`, `unifi_protect`, and `http_mjpeg`. Use `path` in the JSON config when a camera requires a vendor-specific RTSP path that is not covered by the profile defaults.
+
+To validate camera settings during API startup:
+
+```bash
+export CAMERA_CONFIG=configs/camera.local.json
+export CAMERA_REQUIRE_FFPLAY=1
+uvicorn api.main:app --reload --port 8080
+```
+
+Run the live Tapo stream through the current mock vision pipeline and post events to the API:
+
+```bash
+export CAMERA_USERNAME='camera-user'
+export CAMERA_PASSWORD='camera-password'
+.venv/bin/python -m vision.live_pipeline \
+  --config configs/camera.local.json \
+  --api-url http://127.0.0.1:8080 \
+  --sample-fps 1 \
+  --frames 10
+```
+
+The worker uses the same Tapo RTSP URL validated by `ffplay`, samples frames with FFmpeg, runs the active `DetectionAdapter`, and posts resulting events to `/events`.
 
 Jetson Orin target path after ONNX adapter implementation:
 

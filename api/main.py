@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import os
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -12,15 +14,38 @@ from events.lifecycle import EventStore
 from events.schemas import EventType, IncidentStatus, IntersectionIncident, Severity, TrafficEvent
 from telemetry.metrics import InferenceMetrics
 from telemetry.runtime import RuntimeSnapshot
+from vision.camera_profiles import CameraConfigError, verify_camera_connection
+
+logger = logging.getLogger(__name__)
 
 _store = EventStore()
 _inference_metrics = InferenceMetrics()
 _runtime = RuntimeSnapshot()
+_known_cameras: set[str] = set()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _runtime.started_at = time.time()
+    camera_config = os.getenv("CAMERA_CONFIG")
+    if camera_config:
+        try:
+            connection = verify_camera_connection(
+                camera_config,
+                require_ffplay=os.getenv("CAMERA_REQUIRE_FFPLAY", "0") == "1",
+            )
+        except CameraConfigError:
+            logger.exception("Camera startup validation failed")
+            raise
+        _runtime.camera_count = 1
+        _known_cameras.add(connection.camera_id)
+        logger.info(
+            "Camera startup validation passed: camera_id=%s model_type=%s host=%s feed_url=%s",
+            connection.camera_id,
+            connection.model_type,
+            connection.host,
+            connection.masked_feed_url,
+        )
     yield
 
 
@@ -74,6 +99,8 @@ def ingest_event(req: EventIngestRequest) -> TrafficEvent:
         metadata=req.metadata,
     )
     _store.add_event(event)
+    _known_cameras.add(event.camera_id)
+    _runtime.camera_count = len(_known_cameras)
     _runtime.event_count += 1
     if req.inference_latency_ms is not None:
         _inference_metrics.record(req.inference_latency_ms)

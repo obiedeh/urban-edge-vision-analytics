@@ -1,0 +1,28 @@
+{
+  "inference_target": "mock",
+  "adapter_contract": {
+    "cli_flag": "--detector",
+    "supported_values": [
+      "mock",
+      "nvidia-nim",
+      "nvidia-vss",
+      "nvidia-cosmos"
+    ],
+    "endpoint_env": "NVIDIA_VISION_ENDPOINT",
+    "api_key_env": "NVIDIA_API_KEY",
+    "model_env": "NVIDIA_VISION_MODEL"
+  },
+  "planned_targets": [
+    "nvidia_vss",
+    "nvidia_cosmos_world_model",
+    "nvidia_nim",
+    "tensorrt"
+  ],
+  "video_ingress": {
+    "camera_config": "configs/camera.local.json",
+    "validated_with": "ffplay",
+    "frame_sampler": "ffmpeg",
+    "sample_fps": 1
+  },
+  "notes": "Camera ingress is separated from inference so Tapo RTSP can feed mock detection today and NVIDIA VSS, Cosmos/world-model, NIM, or TensorRT adapters later."
+}
