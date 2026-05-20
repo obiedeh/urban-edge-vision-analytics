@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 
 from events.schemas import EventType, Severity, TrafficEvent
 from vision.schemas import BoundingBox, InferenceFrame, VehicleClass, VehicleDetection
+from vision.source_loader import synthetic_frames
 
 
 def test_bounding_box_confidence_bounds():
@@ -44,3 +45,24 @@ def test_traffic_event_defaults():
     assert event.operator_review_recommended is False
     assert event.track_ids == []
     assert event.vehicle_count == 0
+
+
+def test_synthetic_frames_yields_correct_count():
+    frames = list(synthetic_frames(camera_id="cam-test", count=5))
+    assert len(frames) == 5
+    assert all(f.camera_id == "cam-test" for f in frames)
+    assert all(f.source_type == "synthetic" for f in frames)
+
+
+def test_synthetic_frames_timestamps_are_monotonic():
+    frames = list(synthetic_frames(fps=10.0, count=4))
+    timestamps = [f.timestamp_ms for f in frames]
+    assert timestamps == sorted(timestamps)
+    assert timestamps[1] - timestamps[0] == 100  # 1000ms / 10fps
+
+
+def test_synthetic_frames_unlimited_yields_lazily():
+    gen = synthetic_frames()
+    first = next(gen)
+    second = next(gen)
+    assert first.frame_id != second.frame_id
