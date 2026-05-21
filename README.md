@@ -118,6 +118,17 @@ Open:
 
 ---
 
+## Run This Demo
+
+```bash
+uvicorn api.main:app --reload --port 8080
+python examples/generate_mock_report.py --output examples/mock_inference_report.json
+```
+
+The API exposes the operator-facing event workflow, while the mock report shows deterministic frame-analysis evidence without claiming real-camera accuracy.
+
+---
+
 ## Docker
 
 ```bash
