@@ -3,7 +3,7 @@ import { useParams, Link } from "react-router-dom";
 import { api, type TrafficEvent } from "@/lib/api";
 import { useEventStream } from "@/lib/sse";
 import { formatTs } from "@/lib/utils";
-import { ArrowLeft, X } from "lucide-react";
+import { ArrowLeft, X, ImageOff } from "lucide-react";
 
 const DETAIL_FPS = 5;
 
@@ -20,6 +20,9 @@ function EventDrawer({
   event: TrafficEvent;
   onClose: () => void;
 }) {
+  const [frameErr, setFrameErr] = useState(false);
+  const frameSrc = api.snapshotUrl(event.camera_id);
+
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
@@ -30,6 +33,21 @@ function EventDrawer({
             <X className="h-4 w-4" />
           </button>
         </div>
+
+        {/* Frame at time of event (snapshot transport — nearest available frame) */}
+        {!frameErr ? (
+          <img
+            src={frameSrc}
+            alt={`Frame from ${event.camera_id}`}
+            onError={() => setFrameErr(true)}
+            className="w-full rounded border border-border object-cover max-h-48"
+          />
+        ) : (
+          <div className="w-full h-32 rounded border border-border bg-secondary/20 flex items-center justify-center gap-2 text-xs text-muted-foreground">
+            <ImageOff className="h-4 w-4" />
+            Frame unavailable
+          </div>
+        )}
         <div className="space-y-2 text-xs">
           <div className="flex justify-between">
             <span className="text-muted-foreground">Type</span>
