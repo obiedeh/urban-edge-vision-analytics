@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, type ArtifactEntry } from "@/lib/api";
+import { CredibilityBanner } from "@/components/credibility-banner";
 import { FileText, FolderOpen, ChevronRight, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -175,9 +176,11 @@ export function ArtifactsPage() {
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<ArtifactEntry | null>(null);
   const [search, setSearch] = useState("");
+  const [isMock, setIsMock] = useState(false);
 
   useEffect(() => {
     api.artifacts.list().then(setEntries).catch(() => null).finally(() => setLoading(false));
+    api.metrics.kpis().then((k) => setIsMock(k.adapter === "mock")).catch(() => null);
   }, []);
 
   const filtered = search
@@ -190,6 +193,7 @@ export function ArtifactsPage() {
 
   return (
     <div className="p-4 space-y-4">
+      {isMock && <CredibilityBanner />}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-lg font-semibold">Evidence Artifacts</h1>
         <div className="flex items-center gap-3">

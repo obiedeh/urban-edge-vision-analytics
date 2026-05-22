@@ -226,19 +226,43 @@ function BindingsSection({
   packs: UseCasePack[];
 }) {
   const [bindings, setBindings] = useState<Binding[]>([]);
+  // Track the server-committed set so we can detect pack-set changes
+  const [savedPackSet, setSavedPackSet] = useState<string>("");
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
   useEffect(() => {
-    api.cameras.bindings(cameraId).then(setBindings).catch(() => null);
+    api.cameras.bindings(cameraId).then((b) => {
+      setBindings(b);
+      setSavedPackSet(activeKey(b));
+    }).catch(() => null);
   }, [cameraId]);
 
+  /** Stable key representing which packs are enabled */
+  function activeKey(b: Binding[]) {
+    return b
+      .filter((x) => x.enabled)
+      .map((x) => x.pack_id)
+      .sort()
+      .join("+");
+  }
+
   async function save() {
+    // Require explicit confirmation when the pack selection itself changes
+    const newPackSet = activeKey(bindings);
+    if (newPackSet !== savedPackSet) {
+      const confirmed = window.confirm(
+        "Changing the active pack set will update what this camera detects and writes an audit record.\n\nProceed?"
+      );
+      if (!confirmed) return;
+    }
+
     setSaving(true);
     setStatus(null);
     try {
       const updated = await api.cameras.putBindings(cameraId, bindings);
       setBindings(updated);
+      setSavedPackSet(activeKey(updated));
       setStatus({ kind: "ok", text: "Pack bindings saved." });
     } catch (e) {
       if (e instanceof ApiError) {
