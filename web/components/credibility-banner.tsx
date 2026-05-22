@@ -1,13 +1,34 @@
 import { useState } from "react";
 import { AlertTriangle, X } from "lucide-react";
 
+const STORAGE_KEY = "credibility_banner_dismissed";
+
 interface Props {
   dismissible?: boolean;
 }
 
 export function CredibilityBanner({ dismissible = true }: Props) {
-  const [dismissed, setDismissed] = useState(false);
+  // Initialise from localStorage so dismissal survives page navigations
+  const [dismissed, setDismissed] = useState<boolean>(
+    () => {
+      try {
+        return localStorage.getItem(STORAGE_KEY) === "1";
+      } catch {
+        return false; // SSR / privacy-mode guard
+      }
+    }
+  );
+
   if (dismissed) return null;
+
+  function dismiss() {
+    try {
+      localStorage.setItem(STORAGE_KEY, "1");
+    } catch {
+      // ignore write failures (private browsing, quota)
+    }
+    setDismissed(true);
+  }
 
   return (
     <div className="flex items-start gap-3 px-4 py-3 bg-yellow-500/10 border border-yellow-500/30 rounded-md text-sm text-yellow-300">
@@ -19,8 +40,8 @@ export function CredibilityBanner({ dismissible = true }: Props) {
       </span>
       {dismissible && (
         <button
-          onClick={() => setDismissed(true)}
-          className="text-yellow-400 hover:text-yellow-200"
+          onClick={dismiss}
+          className="text-yellow-400 hover:text-yellow-200 shrink-0"
           aria-label="Dismiss"
         >
           <X className="h-4 w-4" />
