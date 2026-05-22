@@ -59,6 +59,9 @@ class EventStore:
         self._incidents[incident_id] = updated
         return updated
 
+    def get_incident(self, incident_id: str) -> IntersectionIncident | None:
+        return self._incidents.get(incident_id)
+
     def list_incidents(self, status: IncidentStatus | None = None) -> list[IntersectionIncident]:
         incidents = list(self._incidents.values())
         if status:
