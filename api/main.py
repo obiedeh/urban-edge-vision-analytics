@@ -12,21 +12,30 @@ from pydantic import BaseModel, Field, model_validator
 
 from events.lifecycle import EventStore
 from events.schemas import EventType, IncidentStatus, IntersectionIncident, Severity, TrafficEvent
+from store.config_store import ConfigStore
 from telemetry.metrics import InferenceMetrics
 from telemetry.runtime import RuntimeSnapshot
+from transports.snapshot import SnapshotTransport
 from vision.camera_profiles import CameraConfigError, verify_camera_connection
 
 logger = logging.getLogger(__name__)
 
+# ── Module-level singletons (AGENTS.md: only here) ────────────────────────────
 _store = EventStore()
 _inference_metrics = InferenceMetrics()
 _runtime = RuntimeSnapshot()
 _known_cameras: set[str] = set()
+_config_store = ConfigStore(os.getenv("STORE_PATH", "store/urbanvision.sqlite"))
+_snapshot_transport = SnapshotTransport()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _runtime.started_at = time.time()
+
+    # Initialise SQLite schema
+    await _config_store.init()
+
     camera_config = os.getenv("CAMERA_CONFIG")
     if camera_config:
         try:
@@ -39,6 +48,16 @@ async def lifespan(app: FastAPI):
             raise
         _runtime.camera_count = 1
         _known_cameras.add(connection.camera_id)
+        # Seed the camera into the config store so /cameras returns it
+        await _config_store.upsert_camera(
+            {
+                "id": connection.camera_id,
+                "name": connection.camera_id,
+                "profile": connection.model_type,
+                "rtsp_url": connection.masked_feed_url,
+                "detection_adapter": "mock",
+            }
+        )
         logger.info(
             "Camera startup validation passed: camera_id=%s model_type=%s host=%s feed_url=%s",
             connection.camera_id,
@@ -55,6 +74,37 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+# ── Wire dependency overrides ─────────────────────────────────────────────────
+
+from api.routes import cameras as _cam_routes  # noqa: E402
+from api.routes import metrics_extra as _metrics_routes  # noqa: E402
+from api.routes import snapshot as _snap_routes  # noqa: E402
+
+app.dependency_overrides[_cam_routes._get_store] = lambda: _config_store
+app.dependency_overrides[_snap_routes._get_transport] = lambda: _snapshot_transport
+app.dependency_overrides[_metrics_routes._get_inference_metrics] = (
+    lambda: _inference_metrics
+)
+app.dependency_overrides[_metrics_routes._get_adapter_name] = lambda: os.getenv(
+    "DETECTION_ADAPTER", "mock"
+)
+
+# ── Register routers ──────────────────────────────────────────────────────────
+
+from api.routes.artifacts import router as artifacts_router  # noqa: E402
+from api.routes.cameras import router as cameras_router  # noqa: E402
+from api.routes.metrics_extra import router as metrics_extra_router  # noqa: E402
+from api.routes.snapshot import router as snapshot_router  # noqa: E402
+from api.routes.use_cases import router as use_cases_router  # noqa: E402
+
+app.include_router(cameras_router)
+app.include_router(use_cases_router)
+app.include_router(snapshot_router)
+app.include_router(metrics_extra_router)
+app.include_router(artifacts_router)
+
+# ── Existing routes ───────────────────────────────────────────────────────────
 
 
 @app.get("/health")
@@ -114,8 +164,19 @@ def ingest_event(req: EventIngestRequest) -> TrafficEvent:
 
 
 @app.get("/events")
-def list_events(camera_id: str | None = None) -> list[TrafficEvent]:
-    return _store.list_events(camera_id=camera_id)
+def list_events(
+    camera_id: str | None = None,
+    cursor: str | None = None,
+    limit: int = 50,
+) -> list[TrafficEvent]:
+    events = _store.list_events(camera_id=camera_id)
+    if cursor:
+        try:
+            idx = next(i for i, e in enumerate(events) if e.event_id == cursor)
+            events = events[idx + 1 :]
+        except StopIteration:
+            events = []
+    return events[:limit]
 
 
 @app.get("/events/{event_id}")
@@ -146,8 +207,18 @@ def open_incident(req: OpenIncidentRequest) -> IntersectionIncident:
 
 
 @app.get("/incidents")
-def list_incidents(status: IncidentStatus | None = None) -> list[IntersectionIncident]:
+def list_incidents(
+    status: IncidentStatus | None = None,
+) -> list[IntersectionIncident]:
     return _store.list_incidents(status=status)
+
+
+@app.get("/incidents/{incident_id}")
+def get_incident(incident_id: str) -> IntersectionIncident:
+    incident = _store.get_incident(incident_id)
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    return incident
 
 
 class UpdateIncidentRequest(BaseModel):
@@ -156,11 +227,41 @@ class UpdateIncidentRequest(BaseModel):
 
 
 @app.patch("/incidents/{incident_id}")
-def update_incident(incident_id: str, req: UpdateIncidentRequest) -> IntersectionIncident:
+def update_incident(
+    incident_id: str, req: UpdateIncidentRequest
+) -> IntersectionIncident:
     incident = _store.update_incident_status(
         incident_id=incident_id,
         status=req.status,
         notes=req.notes,
+    )
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    return incident
+
+
+class IncidentTransitionRequest(BaseModel):
+    action: str
+    note: str = ""
+
+
+@app.post("/incidents/{incident_id}/transition")
+def transition_incident(
+    incident_id: str, req: IncidentTransitionRequest
+) -> IntersectionIncident:
+    _status_map = {
+        "review": IncidentStatus.under_review,
+        "resolve": IncidentStatus.resolved,
+        "dismiss": IncidentStatus.dismissed,
+    }
+    status = _status_map.get(req.action)
+    if not status:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown action '{req.action}'. Use: review, resolve, dismiss.",
+        )
+    incident = _store.update_incident_status(
+        incident_id=incident_id, status=status, notes=req.note
     )
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
