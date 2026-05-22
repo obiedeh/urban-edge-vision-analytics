@@ -1,4 +1,4 @@
-.PHONY: install-dev lint test typecheck demo-report validate-artifacts verify
+.PHONY: install-dev lint test typecheck demo-report validate-artifacts verify web-install web-dev web-build
 
 PYTHON ?= .venv/bin/python
 PIP ?= .venv/bin/pip
@@ -25,3 +25,13 @@ validate-artifacts:
 	test -s examples/mock_inference_report.json
 
 verify: lint typecheck test demo-report validate-artifacts
+
+# ── Web frontend ──────────────────────────────────────────────────────────────
+web-install:
+	cd web && pnpm install
+
+web-dev:
+	cd web && pnpm dev
+
+web-build:
+	cd web && pnpm build
