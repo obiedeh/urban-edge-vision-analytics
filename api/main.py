@@ -7,7 +7,10 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 
 from events.lifecycle import EventStore
@@ -266,3 +269,21 @@ def transition_incident(
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
     return incident
+
+
+# ── Serve compiled frontend (must be last — catch-all for SPA routing) ────────
+_web_dist = Path(__file__).parent.parent / "web" / "dist"
+if _web_dist.exists():
+    # Serve static assets (JS/CSS) under /assets
+    app.mount(
+        "/assets",
+        StaticFiles(directory=str(_web_dist / "assets")),
+        name="web-assets",
+    )
+
+    @app.get("/", include_in_schema=False)
+    @app.get("/{path:path}", include_in_schema=False)
+    async def spa_fallback(path: str = "") -> "fastapi.responses.FileResponse":
+        from fastapi.responses import FileResponse
+
+        return FileResponse(str(_web_dist / "index.html"))

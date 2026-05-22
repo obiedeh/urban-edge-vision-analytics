@@ -10,3 +10,9 @@ build/
 .mypy_cache/
 .ruff_cache/
 store/urbanvision.sqlite
+
+# Web frontend
+web/node_modules/
+web/dist/
+web/.env.local
+web/.env.*.local
