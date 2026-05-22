@@ -89,42 +89,49 @@ function KpiStrip() {
   }, []);
 
   if (!kpis) return null;
-  const kpisData = kpis as unknown as Record<string, unknown>;
-  const inf = (kpisData.kpis as Record<string, unknown>)?.inference_latency_ms as Record<string, unknown> | null;
-  const flow = (kpisData.kpis as Record<string, unknown>)?.flow as Record<string, unknown> | null;
+
+  // Pull values from the tiles array (server-side badge format)
+  function tile(key: string) {
+    return kpis!.tiles?.find((t) => t.key === key)?.value ?? null;
+  }
+
+  const meanMs   = tile("latency_mean");
+  const p95Ms    = tile("latency_p95");
+  const samples  = tile("sample_count");
+  const vehicles = tile("vehicle_count");
+  const congestion = tile("congestion");
 
   return (
     <div className="flex flex-wrap gap-4 px-4 py-2 bg-card/50 border-b border-border text-xs text-muted-foreground">
-      {inf && (
-        <>
-          <span>
-            Latency avg:{" "}
-            <span className="text-foreground font-medium">
-              {inf.mean != null ? `${(inf.mean as number).toFixed(1)} ms` : "—"}
-            </span>
+      {meanMs != null && (
+        <span>
+          Latency avg:{" "}
+          <span className="text-foreground font-medium">
+            {typeof meanMs === "number" ? `${meanMs.toFixed(1)} ms` : String(meanMs)}
           </span>
-          <span>
-            p95:{" "}
-            <span className="text-foreground font-medium">
-              {inf.p95 != null ? `${(inf.p95 as number).toFixed(1)} ms` : "—"}
-            </span>
-          </span>
-          <span>
-            Samples:{" "}
-            <span className="text-foreground font-medium">{String(inf.sample_count ?? 0)}</span>
-          </span>
-        </>
+        </span>
       )}
-      {flow && (
-        <>
-          <span>
-            Vehicles in frame:{" "}
-            <span className="text-foreground font-medium">{String(flow.vehicle_count ?? 0)}</span>
+      {p95Ms != null && (
+        <span>
+          p95:{" "}
+          <span className="text-foreground font-medium">
+            {typeof p95Ms === "number" ? `${p95Ms.toFixed(1)} ms` : String(p95Ms)}
           </span>
-          {flow.is_congested && (
-            <span className="text-yellow-400 font-semibold">⚠ CONGESTED</span>
-          )}
-        </>
+        </span>
+      )}
+      {samples != null && (
+        <span>
+          Samples: <span className="text-foreground font-medium">{String(samples)}</span>
+        </span>
+      )}
+      {vehicles != null && (
+        <span>
+          Vehicles:{" "}
+          <span className="text-foreground font-medium">{String(vehicles)}</span>
+        </span>
+      )}
+      {congestion === "CONGESTED" && (
+        <span className="text-yellow-400 font-semibold">⚠ CONGESTED</span>
       )}
       {kpis.adapter === "mock" && (
         <span className="text-yellow-400 ml-auto">MOCK DATA</span>
