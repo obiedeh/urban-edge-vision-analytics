@@ -27,8 +27,15 @@
 
 ## Phase 4 — Operator Workflows
 
-- Incident evidence packaging (frame crops, detection overlays, metadata bundle)
+Authoritative spec: [`docs/operator-wrapper-brief.md`](operator-wrapper-brief.md).
+Implementation handoff: [`docs/claude-code-kickoff.md`](claude-code-kickoff.md).
+
+Phase 4 scope locked to three use case packs + compatibility rule +
+configurable report interval + honest Metrics & KPIs dashboard, in three
+commits. Items below are explicitly deferred to a future phase:
+
 - Multimodal incident summarization via local VLM or NVIDIA NIM
-- Operator review UI or REST-driven review workflow
-- Incident export and audit trail
+- Incident export and PDF/CSV reports
 - Prometheus metrics endpoint and Grafana dashboard profile
+- Schedules / alert routing / webhook channels
+- Multi-role auth (RBAC) and login
