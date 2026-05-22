@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, type ArtifactEntry } from "@/lib/api";
 import { CredibilityBanner } from "@/components/credibility-banner";
-import { FileText, FolderOpen, ChevronRight, X } from "lucide-react";
+import { FileText, FolderOpen, ChevronRight, X, Copy, Download, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -30,7 +30,52 @@ function extOf(path: string): string {
   return parts.length > 1 ? parts[parts.length - 1].toLowerCase() : "";
 }
 
-// ── JSON / text viewer ────────────────────────────────────────────────────────
+// ── JSON / text viewer with copy + download ───────────────────────────────────
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // fallback: select all in a textarea — skip for brevity
+    }
+  }
+  return (
+    <button
+      onClick={copy}
+      title="Copy to clipboard"
+      className="flex items-center gap-1 rounded px-2 py-1 text-[10px] border border-border text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors"
+    >
+      {copied ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+      {copied ? "Copied" : "Copy"}
+    </button>
+  );
+}
+
+function DownloadButton({ path, text }: { path: string; text: string }) {
+  function download() {
+    const blob = new Blob([text], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = path.split("/").pop() ?? "artifact.json";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+  return (
+    <button
+      onClick={download}
+      title="Download file"
+      className="flex items-center gap-1 rounded px-2 py-1 text-[10px] border border-border text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors"
+    >
+      <Download className="h-3 w-3" />
+      Download
+    </button>
+  );
+}
 
 function ArtifactViewer({
   entry,
@@ -53,6 +98,9 @@ function ArtifactViewer({
 
   const ext = extOf(entry.path);
   const isJson = ext === "json" || ext === "jsonl";
+  const rendered = content !== null
+    ? (isJson ? JSON.stringify(content, null, 2) : String(content))
+    : "";
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
@@ -70,10 +118,17 @@ function ArtifactViewer({
         </div>
 
         {/* Meta strip */}
-        <div className="flex gap-4 border-b border-border px-4 py-2 text-[10px] text-muted-foreground shrink-0">
+        <div className="flex items-center gap-4 border-b border-border px-4 py-2 text-[10px] text-muted-foreground shrink-0">
           <span>{fmtSize(entry.size_bytes)}</span>
           <span>{fmtDate(entry.last_modified)}</span>
-          <span className="ml-auto uppercase tracking-wide">{entry.kind}</span>
+          <span className="uppercase tracking-wide">{entry.kind}</span>
+          {/* Copy + Download — only when content loaded */}
+          {!loading && !error && rendered && (
+            <div className="ml-auto flex items-center gap-1.5">
+              <CopyButton text={rendered} />
+              <DownloadButton path={entry.path} text={rendered} />
+            </div>
+          )}
         </div>
 
         {/* Body */}
@@ -86,9 +141,7 @@ function ArtifactViewer({
           )}
           {!loading && !error && content !== null && (
             <pre className="text-[11px] text-foreground/90 whitespace-pre-wrap font-mono leading-relaxed">
-              {isJson
-                ? JSON.stringify(content, null, 2)
-                : String(content)}
+              {rendered}
             </pre>
           )}
         </div>
