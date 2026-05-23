@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 class EventType(StrEnum):
     vehicle_detected = "vehicle_detected"
+    scene_clear = "scene_clear"          # no moving objects in frame
     red_light_violation = "red_light_violation"
     unsafe_turn = "unsafe_turn"
     congestion_onset = "congestion_onset"

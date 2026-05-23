@@ -33,6 +33,14 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+async function del(path: string): Promise<void> {
+  const res = await fetch(`${BASE}${path}`, { method: "DELETE" });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}));
+    throw new ApiError(res.status, detail);
+  }
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -51,8 +59,65 @@ export interface Camera {
   profile: string;
   rtsp_url: string;
   detection_adapter: string;
+  synthetic: boolean;
   enabled: boolean;
   last_frame_at?: string;
+}
+
+export interface CameraConfigPayload {
+  camera_id?: string;
+  model_type: string;
+  host: string;
+  port: number;
+  stream: string;
+  channel: number;
+  username: string;
+  password: string;
+  rtsp_transport: string;
+  detection_adapter: string;
+  nvidia_endpoint?: string;
+  nvidia_api_key?: string;
+  synthetic?: boolean;
+}
+
+export interface CameraConfigResponse {
+  camera_id: string;
+  model_type: string;
+  host: string;
+  port: number;
+  stream: string;
+  channel: number;
+  username: string;
+  /** Always "••••••••" when returned from server */
+  password: string;
+  rtsp_transport: string;
+  detection_adapter?: string;
+  nvidia_endpoint?: string;
+  nvidia_api_key?: string;
+  synthetic?: boolean;
+  status?: string;
+}
+
+export interface PipelineStatus {
+  state: "running" | "stopped" | "failed" | "completed";
+  pid: number | null;
+  uptime_seconds: number | null;
+  camera_id: string | null;
+  adapter: string | null;
+  synthetic: boolean | null;
+  config_path?: string;
+  exit_code?: number;
+  log_tail: string[];
+}
+
+export interface CameraTestResponse {
+  ok: boolean;
+  camera_id: string;
+  masked_url?: string;
+  reachable?: boolean;
+  reach_error?: string | null;
+  error?: string;
+  stage: string;
 }
 
 export interface Binding {
@@ -115,6 +180,36 @@ export interface FlowResponse {
   tooltip?: string;
 }
 
+export interface OllamaModel {
+  name: string;
+  size_gb?: number;
+  family?: string;
+  parameter_size?: string;
+  vision: boolean;
+  // catalog extras (may be absent for models not in catalog)
+  label?: string;
+  tier?: "nano" | "mid" | "high" | "max";
+  vram_gb?: number;
+  description?: string;
+  tags?: string[];
+}
+
+export interface CatalogModel {
+  name: string;
+  hf_id: string;
+  label: string;
+  family: string;
+  vision: boolean;
+  params_b: number;
+  vram_gb: number;
+  tier: "nano" | "mid" | "high" | "max";
+  backend: "ollama" | "vllm";
+  description: string;
+  pull_cmd: string;
+  tags: string[];
+  installed: boolean;
+}
+
 export interface ArtifactEntry {
   path: string;
   kind: string;
@@ -135,9 +230,26 @@ export interface SpeedCalibration {
 export const api = {
   cameras: {
     list: () => get<Camera[]>("/cameras"),
+    getConfig: () => get<CameraConfigResponse>("/cameras/config"),
+    saveConfig: (payload: CameraConfigPayload) =>
+      post<CameraConfigResponse>("/cameras/config", payload),
+    testConfig: (payload: CameraConfigPayload) =>
+      post<CameraTestResponse>("/cameras/config/test", payload),
+    deleteConfig: () => del("/cameras/config"),
     bindings: (id: string) => get<Binding[]>(`/cameras/${id}/bindings`),
     putBindings: (id: string, bindings: Binding[]) =>
-      put<Binding[]>(`/cameras/${id}/bindings`, bindings),
+      put<{ camera_id: string; bindings: number; status: string }>(
+        `/cameras/${id}/bindings`,
+        {
+          bindings: bindings
+            .filter((b) => b.enabled)
+            .map((b) => ({
+              pack_id: b.pack_id,
+              parameters: b.parameters ?? {},
+              report_interval_seconds: b.report_interval_seconds,
+            })),
+        }
+      ),
     speedCalibration: (id: string) =>
       get<SpeedCalibration>(`/cameras/${id}/speed-calibration`),
     putSpeedCalibration: (id: string, cal: Partial<SpeedCalibration>) =>
@@ -176,7 +288,34 @@ export const api = {
     list: () => get<ArtifactEntry[]>("/artifacts"),
     get: (path: string) => get<unknown>(`/artifacts/${encodeURIComponent(path)}`),
   },
+  pipeline: {
+    status: () => get<PipelineStatus>("/pipeline/status"),
+    start: (adapter: string, nvidia_endpoint?: string, nvidia_api_key?: string) =>
+      post<{ status: string; adapter: string }>("/pipeline/start", { adapter, nvidia_endpoint: nvidia_endpoint ?? "", nvidia_api_key: nvidia_api_key ?? "" }),
+    stop: () => post<{ status: string }>("/pipeline/stop", {}),
+    switchAdapter: (adapter: string, nvidia_endpoint?: string, nvidia_api_key?: string, local_model?: string, local_endpoint?: string) =>
+      post<{ detection_adapter: string; pipeline: string }>("/cameras/config/adapter", { detection_adapter: adapter, nvidia_endpoint: nvidia_endpoint ?? "", nvidia_api_key: nvidia_api_key ?? "", local_model: local_model ?? "", local_endpoint: local_endpoint ?? "" }),
+  },
   runtime: () => get<Record<string, unknown>>("/runtime"),
+  localInference: {
+    ollama: {
+      status: (endpoint?: string) => get<{ running: boolean; endpoint: string; version: string | null }>(
+        `/inference/ollama/status${endpoint ? `?endpoint=${encodeURIComponent(endpoint)}` : ""}`
+      ),
+      models: (endpoint?: string) => get<{ running: boolean; models: OllamaModel[] }>(
+        `/inference/ollama/models${endpoint ? `?endpoint=${encodeURIComponent(endpoint)}` : ""}`
+      ),
+    },
+    vllm: {
+      status: (endpoint?: string) => get<{ running: boolean; endpoint: string; model_count: number }>(
+        `/inference/vllm/status${endpoint ? `?endpoint=${encodeURIComponent(endpoint)}` : ""}`
+      ),
+      models: (endpoint?: string) => get<{ running: boolean; models: OllamaModel[] }>(
+        `/inference/vllm/models${endpoint ? `?endpoint=${encodeURIComponent(endpoint)}` : ""}`
+      ),
+    },
+    catalog: () => get<{ models: CatalogModel[] }>("/inference/catalog"),
+  },
   snapshotUrl: (cameraId: string) =>
     `${BASE}/stream/${cameraId}/snapshot.jpg?t=${Date.now()}`,
 };

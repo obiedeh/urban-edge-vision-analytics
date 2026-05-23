@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS cameras (
     rtsp_url TEXT,
     sample_fps REAL DEFAULT 1.0,
     detection_adapter TEXT DEFAULT 'mock',
+    synthetic INTEGER DEFAULT 0,
     timezone TEXT DEFAULT 'UTC',
     enabled INTEGER DEFAULT 1,
     retention_days INTEGER DEFAULT 30

@@ -22,6 +22,7 @@ export default defineConfig({
       "/artifacts": "http://localhost:8080",
       "/runtime": "http://localhost:8080",
       "/health": "http://localhost:8080",
+      "/pipeline": "http://localhost:8080",
     },
   },
 });

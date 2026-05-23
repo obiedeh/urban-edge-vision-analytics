@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
 
 from transports.snapshot import SnapshotTransport
@@ -35,3 +35,20 @@ def get_snapshot(
             "X-Last-Updated": str(int(last_updated * 1000)),
         },
     )
+
+
+@router.post("/{camera_id}/snapshot.jpg", status_code=204)
+async def post_snapshot(
+    camera_id: str,
+    request: Request,
+    transport: SnapshotTransport = Depends(_get_transport),
+) -> Response:
+    """Accept a JPEG frame from the pipeline subprocess and store it in memory.
+
+    The pipeline runs in a separate process and cannot directly access the
+    in-memory SnapshotTransport, so it POSTs frames here via HTTP instead.
+    """
+    body = await request.body()
+    if body and len(body) > 100:  # sanity: ignore tiny/empty payloads
+        transport.update(camera_id, body)
+    return Response(status_code=204)

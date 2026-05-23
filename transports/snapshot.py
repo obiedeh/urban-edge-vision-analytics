@@ -49,6 +49,37 @@ class SnapshotTransport:
 
 
 def _make_placeholder_jpeg(camera_id: str) -> bytes:
-    """Return a simple synthetic JPEG placeholder (no OpenCV dependency)."""
-    # Use the pre-built blank JPEG — good enough for UI placeholder at MVP
-    return _BLANK_JPEG
+    """Return a dark 'No Feed' placeholder JPEG with the camera ID."""
+    try:
+        import io
+
+        from PIL import Image, ImageDraw
+
+        W, H = 640, 360
+        img = Image.new("RGB", (W, H), (10, 14, 22))
+        draw = ImageDraw.Draw(img)
+
+        # Subtle grid
+        for x in range(0, W, 64):
+            draw.line([(x, 0), (x, H)], fill=(20, 28, 40), width=1)
+        for y in range(0, H, 64):
+            draw.line([(0, y), (W, y)], fill=(20, 28, 40), width=1)
+
+        # Corner brackets
+        blen = 16
+        for cx, cy, sx, sy in [
+            (8, 8, 1, 1), (W - 8, 8, -1, 1),
+            (8, H - 8, 1, -1), (W - 8, H - 8, -1, -1),
+        ]:
+            draw.line([(cx, cy), (cx + sx * blen, cy)], fill=(60, 80, 100), width=2)
+            draw.line([(cx, cy), (cx, cy + sy * blen)], fill=(60, 80, 100), width=2)
+
+        # Center text
+        draw.text((W // 2, H // 2 - 16), camera_id, fill=(120, 130, 150), anchor="mm")
+        draw.text((W // 2, H // 2 + 8), "Awaiting first frame…", fill=(60, 70, 90), anchor="mm")
+
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=75)
+        return buf.getvalue()
+    except Exception:
+        return _BLANK_JPEG

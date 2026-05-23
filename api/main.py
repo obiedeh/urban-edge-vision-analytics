@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from events.lifecycle import EventStore
 from events.schemas import EventType, IncidentStatus, IntersectionIncident, Severity, TrafficEvent
+from api.pipeline_manager import PipelineManager
 from store.config_store import ConfigStore
 from telemetry.metrics import InferenceMetrics
 from telemetry.runtime import RuntimeSnapshot
@@ -30,6 +31,9 @@ _runtime = RuntimeSnapshot()
 _known_cameras: set[str] = set()
 _config_store = ConfigStore(os.getenv("STORE_PATH", "store/urbanvision.sqlite"))
 _snapshot_transport = SnapshotTransport()
+_pipeline_manager = PipelineManager()
+
+_CAMERA_CONFIG_PATH = Path("configs/camera.local.json")
 
 
 @asynccontextmanager
@@ -39,11 +43,14 @@ async def lifespan(app: FastAPI):
     # Initialise SQLite schema
     await _config_store.init()
 
-    camera_config = os.getenv("CAMERA_CONFIG")
-    if camera_config:
+    adapter = os.getenv("DETECTION_ADAPTER", "mock")
+
+    # Legacy: CAMERA_CONFIG env var → validate connection (backward compat)
+    camera_config_env = os.getenv("CAMERA_CONFIG")
+    if camera_config_env:
         try:
             connection = verify_camera_connection(
-                camera_config,
+                camera_config_env,
                 require_ffplay=os.getenv("CAMERA_REQUIRE_FFPLAY", "0") == "1",
             )
         except CameraConfigError:
@@ -51,24 +58,59 @@ async def lifespan(app: FastAPI):
             raise
         _runtime.camera_count = 1
         _known_cameras.add(connection.camera_id)
-        # Seed the camera into the config store so /cameras returns it
         await _config_store.upsert_camera(
             {
                 "id": connection.camera_id,
                 "name": connection.camera_id,
                 "profile": connection.model_type,
                 "rtsp_url": connection.masked_feed_url,
-                "detection_adapter": "mock",
+                "detection_adapter": adapter,
             }
         )
-        logger.info(
-            "Camera startup validation passed: camera_id=%s model_type=%s host=%s feed_url=%s",
-            connection.camera_id,
-            connection.model_type,
-            connection.host,
-            connection.masked_feed_url,
-        )
+        logger.info("Camera validated from env: camera_id=%s", connection.camera_id)
+
+    # Auto-start pipeline if configs/camera.local.json exists on disk
+    if _CAMERA_CONFIG_PATH.exists():
+        try:
+            import json as _json
+            _cam_cfg = _json.loads(_CAMERA_CONFIG_PATH.read_text())
+            # Prefer adapter saved in the config file; fall back to env var
+            _saved_adapter = _cam_cfg.get("detection_adapter", adapter)
+            _nvidia_adapters = {"nvidia-nim", "nvidia-vss", "nvidia-cosmos"}
+
+            # Fall back to mock if an NVIDIA adapter is saved but no endpoint is configured
+            if _saved_adapter in _nvidia_adapters and not _cam_cfg.get("nvidia_endpoint", "").strip():
+                logger.warning(
+                    "Adapter '%s' requires an endpoint URL but none is configured — "
+                    "falling back to mock adapter to avoid a crash loop.",
+                    _saved_adapter,
+                )
+                _saved_adapter = "mock"
+
+            if _saved_adapter and _saved_adapter != "disabled":
+                _saved_synthetic = bool(_cam_cfg.get("synthetic", False))
+                logger.info(
+                    "Auto-starting pipeline from %s (adapter=%s, synthetic=%s)",
+                    _CAMERA_CONFIG_PATH, _saved_adapter, _saved_synthetic,
+                )
+                _pipeline_manager.start(
+                    config_path=str(_CAMERA_CONFIG_PATH),
+                    adapter=_saved_adapter,
+                    nvidia_endpoint=_cam_cfg.get("nvidia_endpoint") or None,
+                    nvidia_api_key=_cam_cfg.get("nvidia_api_key") or None,
+                    synthetic=_saved_synthetic,
+                    local_model=_cam_cfg.get("local_model") or None,
+                    local_endpoint=_cam_cfg.get("local_endpoint") or None,
+                )
+            else:
+                logger.info("Pipeline adapter is 'disabled' — not auto-starting.")
+        except Exception:
+            logger.exception("Failed to auto-start pipeline")
+
     yield
+
+    # Graceful shutdown
+    _pipeline_manager.stop()
 
 
 app = FastAPI(
@@ -85,6 +127,7 @@ from api.routes import metrics_extra as _metrics_routes  # noqa: E402
 from api.routes import snapshot as _snap_routes  # noqa: E402
 
 app.dependency_overrides[_cam_routes._get_store] = lambda: _config_store
+app.dependency_overrides[_cam_routes._get_pipeline] = lambda: _pipeline_manager
 app.dependency_overrides[_snap_routes._get_transport] = lambda: _snapshot_transport
 app.dependency_overrides[_metrics_routes._get_inference_metrics] = (
     lambda: _inference_metrics
@@ -98,14 +141,21 @@ app.dependency_overrides[_metrics_routes._get_adapter_name] = lambda: os.getenv(
 from api.routes.artifacts import router as artifacts_router  # noqa: E402
 from api.routes.cameras import router as cameras_router  # noqa: E402
 from api.routes.metrics_extra import router as metrics_extra_router  # noqa: E402
+from api.routes.pipeline import router as pipeline_router  # noqa: E402
+from api.routes.pipeline import _get_manager as _pipeline_get_manager  # noqa: E402
 from api.routes.snapshot import router as snapshot_router  # noqa: E402
 from api.routes.use_cases import router as use_cases_router  # noqa: E402
+from api.routes.local_inference import router as local_inference_router  # noqa: E402
+
+app.dependency_overrides[_pipeline_get_manager] = lambda: _pipeline_manager
 
 app.include_router(cameras_router)
 app.include_router(use_cases_router)
 app.include_router(snapshot_router)
 app.include_router(metrics_extra_router)
 app.include_router(artifacts_router)
+app.include_router(pipeline_router)
+app.include_router(local_inference_router)
 
 # ── Existing routes ───────────────────────────────────────────────────────────
 

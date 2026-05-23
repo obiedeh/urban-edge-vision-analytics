@@ -214,6 +214,150 @@ class NvidiaCosmosAdapter(NvidiaHttpAdapter):
         return self._parse_response(frame, parsed, latency_ms)
 
 
+# ── Local vision adapters (Ollama / vLLM) ────────────────────────────────────
+#
+# Both Ollama and vLLM expose an OpenAI-compatible /v1/chat/completions API.
+# No credentials required — they run locally without auth.
+#
+# Ollama default: http://localhost:11434
+# vLLM default:  http://localhost:8000
+#
+# Vision-capable Ollama models (install with `ollama pull <name>`):
+#   moondream  — 1.8B, fastest, good for traffic frames
+#   llava      — 7B,   general-purpose vision
+#   llava-phi3 — 3.8B, balanced
+#   minicpm-v  — 8B,   high accuracy
+#
+# Vision-capable vLLM models (load with `vllm serve <hf-model-id>`):
+#   llava-hf/llava-1.5-7b-hf
+#   Qwen/Qwen2-VL-7B-Instruct
+#   mistralai/Pixtral-12B  (requires GPU)
+
+_VISION_PROMPT = (
+    "You are a traffic camera AI analyzing an intersection frame. "
+    "Detect all vehicles and pedestrians visible. "
+    "Return ONLY valid JSON (no markdown, no explanation) in this exact schema:\n"
+    '{"detections":[{"label":"car|truck|bus|motorcycle|pedestrian|cyclist|unknown",'
+    '"confidence":0.85,"bbox":[x1,y1,x2,y2],"summary":"brief description"}]}\n'
+    "Use pixel coordinates. If nothing is detected return {\"detections\":[]}."
+)
+
+
+class LocalVisionAdapter(DetectionAdapter):
+    """Base adapter for any OpenAI-compatible local vision server (Ollama or vLLM).
+
+    No authentication required — these servers are expected to run locally.
+    Subclasses set `provider` and `default_endpoint`.
+    """
+
+    provider: str = "local"
+    default_endpoint: str = "http://localhost:11434/v1"
+    default_model: str = "llava"
+
+    def __init__(self, endpoint: str | None = None, model: str | None = None) -> None:
+        self.endpoint = (endpoint or self.default_endpoint).rstrip("/")
+        self.model = model or self.default_model
+        self._timeout = 60.0  # vision inference can be slow on CPU
+
+    def _build_payload(self, frame: InferenceFrame) -> dict[str, Any]:
+        content: list[dict[str, Any]] = []
+        if frame.frame_bytes:
+            b64 = base64.b64encode(frame.frame_bytes).decode("ascii")
+            content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
+            })
+        content.append({"type": "text", "text": _VISION_PROMPT})
+        return {
+            "model": self.model,
+            "messages": [{"role": "user", "content": content}],
+            "temperature": 0.1,
+            "max_tokens": 512,
+            "stream": False,
+        }
+
+    def infer(self, frame: InferenceFrame) -> InferenceFrame:
+        start = time.perf_counter()
+        try:
+            resp = httpx.post(
+                f"{self.endpoint}/chat/completions",
+                headers={"Content-Type": "application/json"},
+                json=self._build_payload(frame),
+                timeout=self._timeout,
+            )
+            resp.raise_for_status()
+            parsed = _parse_cosmos_response(resp.json())
+        except Exception:
+            parsed = {"detections": []}
+        latency_ms = (time.perf_counter() - start) * 1000
+        # Re-use the shared response normaliser from NvidiaHttpAdapter
+        return _normalise_detections(frame, parsed, latency_ms)
+
+
+def _normalise_detections(
+    frame: InferenceFrame, data: dict[str, Any], latency_ms: float
+) -> InferenceFrame:
+    """Shared detection normaliser used by both NVIDIA and local adapters."""
+    detections: list[VehicleDetection] = []
+    for item in data.get("detections", []):
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("vehicle_class", item.get("label", "unknown"))).lower()
+        vehicle_class = (
+            VehicleClass(label)
+            if label in VehicleClass._value2member_map_
+            else VehicleClass.unknown
+        )
+        box = item.get("bounding_box", item.get("bbox", {}))
+        if isinstance(box, list) and len(box) >= 4:
+            x1, y1, x2, y2 = box[:4]
+            box = {
+                "x": float(x1), "y": float(y1),
+                "width": max(float(x2) - float(x1), 0.0),
+                "height": max(float(y2) - float(y1), 0.0),
+                "confidence": float(item.get("confidence", 1.0)),
+            }
+        if not isinstance(box, dict):
+            continue
+        detections.append(VehicleDetection(
+            track_id=str(uuid.uuid4())[:8],
+            vehicle_class=vehicle_class,
+            bounding_box=BoundingBox(
+                x=float(box.get("x", 0)),
+                y=float(box.get("y", 0)),
+                width=float(box.get("width", 0)),
+                height=float(box.get("height", 0)),
+                confidence=float(item.get("confidence", box.get("confidence", 1.0))),
+            ),
+            frame_id=frame.frame_id,
+            timestamp_ms=frame.timestamp_ms,
+            metadata={"provider": "local"},
+        ))
+    return frame.model_copy(update={"detections": detections, "inference_latency_ms": latency_ms})
+
+
+class OllamaAdapter(LocalVisionAdapter):
+    """Ollama local inference adapter.
+
+    Connects to the Ollama server at http://localhost:11434 (no auth required).
+    Install a vision model first:  ollama pull moondream
+    """
+    provider = "ollama"
+    default_endpoint = "http://localhost:11434/v1"
+    default_model = "moondream"  # smallest/fastest vision model
+
+
+class VllmAdapter(LocalVisionAdapter):
+    """vLLM local inference adapter.
+
+    Connects to a vLLM server (default http://localhost:8000/v1, no auth required).
+    Start vLLM:  vllm serve llava-hf/llava-1.5-7b-hf --port 8000
+    """
+    provider = "vllm"
+    default_endpoint = "http://localhost:8000/v1"
+    default_model = "llava-hf/llava-1.5-7b-hf"
+
+
 def _extract_assistant_text(raw: dict[str, Any]) -> str:
     choices = raw.get("choices") or []
     if not choices:
