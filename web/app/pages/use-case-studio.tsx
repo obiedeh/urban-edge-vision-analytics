@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { api, type Camera, type Binding, type UseCasePack, ApiError } from "@/lib/api";
+import { api, type Camera, type Binding, type UseCasePack, ApiError, type CameraConfigResponse } from "@/lib/api";
 import { PackToggleGrid } from "@/components/pack-toggle-grid";
 import { ZoneEditor } from "@/components/zone-editor";
+import { CameraConfigForm } from "@/components/camera-config-form";
 import { cn } from "@/lib/utils";
-import { ChevronDown, ChevronRight, Save, AlertCircle, CheckCircle } from "lucide-react";
+import { ChevronDown, ChevronRight, Save, AlertCircle, CheckCircle, PlusCircle, Pencil } from "lucide-react";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -120,8 +121,10 @@ function SpeedCalibSection({ cameraId }: { cameraId: string }) {
   return (
     <div className="space-y-4">
       <p className="text-xs text-muted-foreground">
-        Define two parallel virtual gates (A and B) that vehicles cross. The distance between
-        them determines speed calculation accuracy.
+        <span className="font-medium text-foreground">Required for Speed Violation pack.</span>{" "}
+        Define two parallel virtual gates (A and B) across the lane. The real-world distance
+        between them determines speed calculation accuracy. Configure this before enabling
+        the Speed Violation pack above.
       </p>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <GateEditor label="Gate A" gate={gateA} onChange={setGateA} />
@@ -193,8 +196,10 @@ function StopZoneSection({ cameraId }: { cameraId: string }) {
   return (
     <div className="space-y-4">
       <p className="text-xs text-muted-foreground">
-        Define the stop zone polygon. Vehicles that fail to dwell at minimum speed inside
-        this region will trigger a stop sign violation event.
+        <span className="font-medium text-foreground">Required for Stop Sign pack.</span>{" "}
+        Draw the stop zone polygon over the stop bar area. Vehicles that fail to dwell at
+        minimum speed inside this region trigger a stop sign violation. Configure this before
+        enabling the Stop Sign pack above.
       </p>
       <ZoneEditor
         label="Stop zone polygon"
@@ -260,25 +265,38 @@ function BindingsSection({
     setSaving(true);
     setStatus(null);
     try {
-      const updated = await api.cameras.putBindings(cameraId, bindings);
-      setBindings(updated);
-      setSavedPackSet(activeKey(updated));
+      await api.cameras.putBindings(cameraId, bindings);
+      // Re-fetch the authoritative list from the server
+      const refreshed = await api.cameras.bindings(cameraId);
+      setBindings(refreshed);
+      setSavedPackSet(activeKey(refreshed));
       setStatus({ kind: "ok", text: "Pack bindings saved." });
     } catch (e) {
       if (e instanceof ApiError) {
         const detail = e.detail?.detail ?? e.detail;
-        const errCode =
-          typeof detail === "object" && detail !== null
-            ? (detail as Record<string, unknown>).error
-            : null;
-        const msg =
-          errCode === "incompatible_pack_selection"
-            ? "Incompatible pack combination (§11.4 rule)."
-            : errCode === "missing_prerequisite"
-            ? "A pack requires another pack to be active first."
-            : errCode === "invalid_report_interval"
-            ? "Report interval must be at least 2 seconds."
-            : `API error ${e.status}`;
+        const d = typeof detail === "object" && detail !== null
+          ? (detail as Record<string, unknown>)
+          : null;
+        const errCode = d?.error as string | undefined;
+
+        let msg: string;
+        if (errCode === "incompatible_pack_selection") {
+          msg = "Incompatible pack combination — Pack 2 (Speed) and Pack 3 (Stop Sign) cannot share the same camera.";
+        } else if (errCode === "missing_prerequisite") {
+          const pack = d?.pack_id as string | undefined;
+          const prereq = d?.prerequisite as string | undefined;
+          if (pack === "speed_violation" || prereq === "speed_calibration") {
+            msg = "Speed Violation pack requires speed calibration to be configured for this camera first. Set up gate A and gate B in the Speed Calibration section.";
+          } else if (pack === "stop_sign" || prereq === "stop_zone") {
+            msg = "Stop Sign pack requires a stop zone to be drawn for this camera first. Define the stop zone in the Stop Zone section.";
+          } else {
+            msg = (d?.message as string) || "A required configuration is missing for one of the selected packs.";
+          }
+        } else if (errCode === "invalid_report_interval") {
+          msg = "Report interval must be at least 2 seconds.";
+        } else {
+          msg = (d?.message as string) || `API error ${e.status}`;
+        }
         setStatus({ kind: "err", text: msg });
       } else {
         setStatus({ kind: "err", text: e instanceof Error ? e.message : "Save failed" });
@@ -338,12 +356,6 @@ function BindingsSection({
   );
 }
 
-// ── Active packs for selected camera ─────────────────────────────────────────
-
-function hasActivePack(bindings: Binding[], packId: string) {
-  return bindings.some((b) => b.pack_id === packId && b.enabled);
-}
-
 function CameraStudio({
   camera,
   packs,
@@ -351,32 +363,20 @@ function CameraStudio({
   camera: Camera;
   packs: UseCasePack[];
 }) {
-  const [bindings, setBindings] = useState<Binding[]>([]);
-
-  useEffect(() => {
-    api.cameras.bindings(camera.id).then(setBindings).catch(() => null);
-  }, [camera.id]);
-
-  const hasSpeed = hasActivePack(bindings, "speed_violation");
-  const hasStop = hasActivePack(bindings, "stop_sign");
-
   return (
     <div className="space-y-3">
       <Section title="Use Case Packs">
         <BindingsSection cameraId={camera.id} packs={packs} />
       </Section>
 
-      {hasSpeed && (
-        <Section title="Speed Calibration" defaultOpen={false}>
-          <SpeedCalibSection cameraId={camera.id} />
-        </Section>
-      )}
+      {/* Always shown so users can configure prerequisites before enabling the pack */}
+      <Section title="⚡ Speed Calibration" defaultOpen={false}>
+        <SpeedCalibSection cameraId={camera.id} />
+      </Section>
 
-      {hasStop && (
-        <Section title="Stop Zone" defaultOpen={false}>
-          <StopZoneSection cameraId={camera.id} />
-        </Section>
-      )}
+      <Section title="🛑 Stop Zone" defaultOpen={false}>
+        <StopZoneSection cameraId={camera.id} />
+      </Section>
     </div>
   );
 }
@@ -388,32 +388,128 @@ export function UseCaseStudio() {
   const [packs, setPacks] = useState<UseCasePack[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showConfig, setShowConfig] = useState(false);
+  const [editingCamera, setEditingCamera] = useState<Camera | null>(null);
+
+  function loadCameras() {
+    return Promise.all([api.cameras.list(), api.useCases.list()])
+      .then(([cams, ps]) => {
+        setCameras(cams);
+        setPacks(ps);
+        if (cams.length > 0 && !selectedId) setSelectedId(cams[0].id);
+      })
+      .catch(() => null)
+      .finally(() => setLoading(false));
+  }
 
   useEffect(() => {
+    loadCameras();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function handleCameraSaved(res: CameraConfigResponse) {
+    // Refresh camera list and auto-select the newly saved camera
     Promise.all([api.cameras.list(), api.useCases.list()])
       .then(([cams, ps]) => {
         setCameras(cams);
         setPacks(ps);
-        if (cams.length > 0) setSelectedId(cams[0].id);
+        setSelectedId(res.camera_id);
+        setShowConfig(false);
+        setEditingCamera(null);
       })
-      .catch(() => null)
-      .finally(() => setLoading(false));
-  }, []);
+      .catch(() => null);
+  }
+
+  function handleCameraDeleted() {
+    // Refresh list after removal
+    api.cameras.list()
+      .then((cams) => {
+        setCameras(cams);
+        if (cams.length > 0) setSelectedId(cams[0].id);
+        else setSelectedId(null);
+      })
+      .catch(() => null);
+  }
 
   const selected = cameras.find((c) => c.id === selectedId) ?? null;
 
   return (
     <div className="p-4 space-y-4">
-      <h1 className="text-lg font-semibold">Use Case Studio</h1>
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <h1 className="text-lg font-semibold">Use Case Studio</h1>
+        <div className="flex items-center gap-1.5">
+          {/* Update Config — only when a camera is selected */}
+          {cameras.length > 0 && selected && (
+            <button
+              onClick={() => {
+                if (showConfig && editingCamera?.id === selected.id) {
+                  setShowConfig(false);
+                  setEditingCamera(null);
+                } else {
+                  setEditingCamera(selected);
+                  setShowConfig(true);
+                }
+              }}
+              className={cn(
+                "flex items-center gap-1.5 rounded border px-3 py-1.5 text-xs font-medium transition-colors",
+                showConfig && editingCamera?.id === selected.id
+                  ? "border-primary/50 bg-primary/10 text-primary"
+                  : "border-border text-muted-foreground hover:text-foreground hover:border-primary/40"
+              )}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              Update Config
+            </button>
+          )}
+
+          {/* Add Camera */}
+          <button
+            onClick={() => {
+              if (showConfig && !editingCamera) {
+                setShowConfig(false);
+              } else {
+                setEditingCamera(null);
+                setShowConfig(true);
+              }
+            }}
+            className={cn(
+              "flex items-center gap-1.5 rounded border px-3 py-1.5 text-xs font-medium transition-colors",
+              showConfig && !editingCamera
+                ? "border-primary/50 bg-primary/10 text-primary"
+                : "border-border text-muted-foreground hover:text-foreground hover:border-primary/40"
+            )}
+          >
+            <PlusCircle className="h-3.5 w-3.5" />
+            Add Camera
+          </button>
+        </div>
+      </div>
+
+      {/* Camera config form — shown when toggled OR when there are no cameras yet */}
+      {(showConfig || (!loading && cameras.length === 0)) && (
+        <div className="rounded-lg border border-border bg-card px-5 py-5">
+          <CameraConfigForm
+            prefillCamera={editingCamera ?? undefined}
+            onSaved={handleCameraSaved}
+            onDeleted={handleCameraDeleted}
+          />
+        </div>
+      )}
 
       {loading && (
         <p className="text-sm text-muted-foreground">Loading cameras…</p>
       )}
 
-      {!loading && cameras.length === 0 && (
-        <div className="rounded-lg border border-border bg-card px-4 py-8 text-center text-sm text-muted-foreground">
-          No cameras configured. Add cameras via{" "}
-          <code className="text-primary">configs/camera.local.json</code> or the API.
+      {!loading && cameras.length === 0 && !showConfig && (
+        <div className="rounded-lg border border-dashed border-border bg-card/50 px-4 py-8 text-center text-sm text-muted-foreground">
+          No cameras configured yet. Click{" "}
+          <button
+            onClick={() => setShowConfig(true)}
+            className="text-primary underline underline-offset-2"
+          >
+            Add Camera
+          </button>{" "}
+          above to get started.
         </div>
       )}
 
@@ -425,24 +521,55 @@ export function UseCaseStudio() {
               Cameras
             </p>
             {cameras.map((cam) => (
-              <button
+              <div
                 key={cam.id}
-                onClick={() => setSelectedId(cam.id)}
                 className={cn(
-                  "w-full text-left rounded px-3 py-2 text-sm transition-colors",
-                  cam.id === selectedId
-                    ? "bg-primary/15 text-primary font-medium"
-                    : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+                  "flex items-center group rounded transition-colors",
+                  cam.id === selectedId ? "bg-primary/15" : "hover:bg-secondary"
                 )}
               >
-                {cam.name || cam.id}
-              </button>
+                {/* Select camera (name click) */}
+                <button
+                  onClick={() => { setSelectedId(cam.id); setShowConfig(false); setEditingCamera(null); }}
+                  className={cn(
+                    "flex-1 text-left px-3 py-2 text-sm transition-colors",
+                    cam.id === selectedId
+                      ? "text-primary font-medium"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <span className="flex items-center gap-1.5 flex-wrap">
+                    {cam.name || cam.id}
+                    {cam.synthetic ? (
+                      <span className="text-[9px] px-1 py-0.5 rounded border bg-yellow-500/15 text-yellow-400 border-yellow-500/30 font-semibold">SYNTH</span>
+                    ) : (
+                      <span className="text-[9px] px-1 py-0.5 rounded border bg-emerald-500/15 text-emerald-400 border-emerald-500/30 font-semibold">LIVE</span>
+                    )}
+                  </span>
+                </button>
+
+                {/* Edit config for this camera */}
+                <button
+                  onClick={() => {
+                    setSelectedId(cam.id);
+                    setEditingCamera(cam);
+                    setShowConfig(true);
+                  }}
+                  title={`Edit config for ${cam.name || cam.id}`}
+                  className={cn(
+                    "px-2 py-2 text-muted-foreground hover:text-primary transition-all",
+                    "opacity-0 group-hover:opacity-100 focus:opacity-100"
+                  )}
+                >
+                  <Pencil className="h-3 w-3" />
+                </button>
+              </div>
             ))}
           </div>
 
           {/* Config panels */}
           <div className="lg:col-span-3">
-            {selected && (
+            {selected && !showConfig && (
               <CameraStudio camera={selected} packs={packs} />
             )}
           </div>

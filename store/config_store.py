@@ -26,6 +26,13 @@ class ConfigStore:
         Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
         async with aiosqlite.connect(self._db_path) as db:
             await db.executescript(_read_schema())
+            # Migrate existing databases: add new columns if they don't exist
+            async with db.execute("PRAGMA table_info(cameras)") as cur:
+                cols = {row[1] for row in await cur.fetchall()}
+            if "synthetic" not in cols:
+                await db.execute(
+                    "ALTER TABLE cameras ADD COLUMN synthetic INTEGER DEFAULT 0"
+                )
             await db.commit()
         self._initialized = True
 
@@ -60,16 +67,17 @@ class ConfigStore:
                 """
                 INSERT INTO cameras
                     (id, name, profile, rtsp_url, sample_fps, detection_adapter,
-                     timezone, enabled, retention_days)
+                     synthetic, timezone, enabled, retention_days)
                 VALUES
                     (:id, :name, :profile, :rtsp_url, :sample_fps, :detection_adapter,
-                     :timezone, :enabled, :retention_days)
+                     :synthetic, :timezone, :enabled, :retention_days)
                 ON CONFLICT(id) DO UPDATE SET
                     name               = excluded.name,
                     profile            = excluded.profile,
                     rtsp_url           = excluded.rtsp_url,
                     sample_fps         = excluded.sample_fps,
                     detection_adapter  = excluded.detection_adapter,
+                    synthetic          = excluded.synthetic,
                     timezone           = excluded.timezone,
                     enabled            = excluded.enabled,
                     retention_days     = excluded.retention_days
@@ -81,6 +89,7 @@ class ConfigStore:
                     "rtsp_url": camera.get("rtsp_url"),
                     "sample_fps": camera.get("sample_fps", 1.0),
                     "detection_adapter": camera.get("detection_adapter", "mock"),
+                    "synthetic": 1 if camera.get("synthetic", False) else 0,
                     "timezone": camera.get("timezone", "UTC"),
                     "enabled": 1 if camera.get("enabled", True) else 0,
                     "retention_days": camera.get("retention_days", 30),
@@ -160,8 +169,8 @@ class ConfigStore:
                 (
                     str(uuid.uuid4()),
                     camera_id,
-                    json.dumps(data.get("gate_a", {})),
-                    json.dumps(data.get("gate_b", {})),
+                    json.dumps(data.get("gate_a", [])),
+                    json.dumps(data.get("gate_b", [])),
                     data.get("real_world_distance_m", 0.0),
                     json.dumps(data.get("homography")) if data.get("homography") else None,
                     now,
