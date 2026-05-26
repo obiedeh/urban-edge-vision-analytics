@@ -6,9 +6,9 @@ from vision.live_pipeline import build_detection_adapter
 from vision.schemas import InferenceFrame, VehicleClass
 
 
-def test_build_detection_adapter_requires_endpoint_for_nvidia():
-    with pytest.raises(ValueError, match="requires --detector-endpoint"):
-        build_detection_adapter("nvidia-vss", endpoint=None)
+def test_build_detection_adapter_requires_endpoint_for_vss():
+    with pytest.raises(ValueError, match="vss adapter requires --detector-endpoint"):
+        build_detection_adapter("vss", endpoint=None)
 
 
 def test_nvidia_adapter_parses_detection_response(monkeypatch):
