@@ -7,12 +7,12 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, model_validator
 
+from api.pipeline_manager import PipelineManager
 from packs.base import PackId
 from packs.compatibility import (
     IncompatiblePackSelection,
     validate_pack_set,
 )
-from api.pipeline_manager import PipelineManager
 from store.config_store import ConfigStore
 
 router = APIRouter(prefix="/cameras", tags=["cameras"])
@@ -73,13 +73,20 @@ SUPPORTED_MODEL_TYPES = [
     "axis", "reolink", "generic_rtsp", "unifi_protect", "http_mjpeg",
 ]
 
-SUPPORTED_ADAPTERS = ["mock", "ollama", "vllm", "nvidia-nim", "nvidia-vss", "nvidia-cosmos", "disabled"]
+SUPPORTED_ADAPTERS = [
+    "mock", "ollama", "vllm",
+    "nvidia-nim", "nvidia-vss", "nvidia-cosmos",
+    "disabled",
+]
 
 
 class CameraConfigIn(BaseModel):
     camera_id: str | None = None
     model_type: str = "hikvision"
-    host: str = Field(default="", description="Camera IP address or hostname (not required for synthetic mode)")
+    host: str = Field(
+        default="",
+        description="Camera IP address or hostname (not required for synthetic mode)",
+    )
     port: int = Field(554, ge=1, le=65535)
     stream: str = "01"
     channel: int = Field(1, ge=1)
@@ -92,7 +99,7 @@ class CameraConfigIn(BaseModel):
     synthetic: bool = False               # True = no real camera, generate synthetic frames
 
     @model_validator(mode="after")
-    def _validate(self) -> "CameraConfigIn":
+    def _validate(self) -> CameraConfigIn:
         if self.model_type not in SUPPORTED_MODEL_TYPES:
             raise ValueError(
                 f"Unsupported model_type '{self.model_type}'. "
@@ -255,7 +262,10 @@ async def switch_adapter(
 ) -> dict:
     """Switch the inference adapter (or stop it) without re-saving camera credentials."""
     if not _CAMERA_CONFIG_PATH.exists():
-        raise HTTPException(status_code=404, detail="No camera config file found. Save camera config first.")
+        raise HTTPException(
+            status_code=404,
+            detail="No camera config file found. Save camera config first.",
+        )
 
     # Persist adapter choice in config file
     config = json.loads(_CAMERA_CONFIG_PATH.read_text(encoding="utf-8"))
@@ -268,7 +278,10 @@ async def switch_adapter(
         config["local_model"] = req.local_model.strip()
     if req.local_endpoint:
         config["local_endpoint"] = req.local_endpoint.strip()
-    _CAMERA_CONFIG_PATH.write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8")
+    _CAMERA_CONFIG_PATH.write_text(
+        json.dumps(config, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
 
     if req.detection_adapter == "disabled":
         pipeline.stop()

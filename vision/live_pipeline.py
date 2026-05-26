@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import os
 import shutil
 import subprocess
@@ -17,10 +16,7 @@ from vision.adapters import (
     MockDetectionAdapter,
     NvidiaCosmosAdapter,
     NvidiaEndpointConfig,
-    NvidiaNimAdapter,
     NvidiaVssAdapter,
-    OllamaAdapter,
-    VllmAdapter,
 )
 from vision.camera_profiles import CameraConnection, verify_camera_connection
 from vision.schemas import InferenceFrame
@@ -38,57 +34,76 @@ class LivePipelineSettings:
     frame_format: str = "raw"
 
 
+# Live runtime selector is locked to exactly three values per
+# docs/live-vlm-engine-brief.md AD-3:
+#   - cosmos-2b: vLLM serving nvidia/Cosmos-Reason2-2B (default)
+#   - cosmos-8b: vLLM serving nvidia/Cosmos-Reason2-8B (heavy tier)
+#   - vss:       NVIDIA VSS Blueprint endpoint (batch-only; not for live UI)
+#
+# MockDetectionAdapter remains the test default but is not selectable here.
+# OllamaAdapter / NvidiaNimAdapter classes stay importable for dev/test but
+# are intentionally not in this selector.
+_ALLOWED_LIVE_MODELS = ("cosmos-2b", "cosmos-8b", "vss")
+_COSMOS_MODEL_MAP = {
+    "cosmos-2b": "nvidia/Cosmos-Reason2-2B",
+    "cosmos-8b": "nvidia/Cosmos-Reason2-8B",
+}
+
+
 def build_detection_adapter(
     adapter_name: str,
     endpoint: str | None = None,
     api_key: str | None = None,
     model: str | None = None,
 ) -> DetectionAdapter:
+    """Build a DetectionAdapter for the locked three-model live menu.
+
+    Allowed: cosmos-2b, cosmos-8b, vss. Anything else raises ValueError.
+    """
     normalized = adapter_name.strip().lower().replace("_", "-")
+    # Back-compat aliases for the three allowed values
+    if normalized in {"cosmos", "nvidia-cosmos", "world-model"}:
+        normalized = "cosmos-2b"
+    elif normalized in {"nvidia-vss"}:
+        normalized = "vss"
 
-    # ── Local adapters (no auth, no endpoint required) ────────────────────────
-    if normalized == "mock":
-        return MockDetectionAdapter()
-
-    if normalized in {"ollama"}:
-        # Default: http://localhost:11434/v1  (Ollama OpenAI-compat endpoint)
-        return OllamaAdapter(
-            endpoint=endpoint or os.getenv("OLLAMA_ENDPOINT") or None,
-            model=model or os.getenv("OLLAMA_MODEL") or None,
-        )
-
-    if normalized in {"vllm"}:
-        # Default: http://localhost:8000/v1  (vLLM OpenAI-compat endpoint)
-        return VllmAdapter(
-            endpoint=endpoint or os.getenv("VLLM_ENDPOINT") or None,
-            model=model or os.getenv("VLLM_MODEL") or None,
-        )
-
-    # ── NVIDIA cloud / on-prem adapters (require endpoint) ────────────────────
-    api_key = api_key or os.getenv("NVIDIA_API_KEY")
-    if normalized in {"nvidia-cosmos", "cosmos", "world-model"}:
-        endpoint = endpoint or os.getenv("NVIDIA_VISION_ENDPOINT") or "http://127.0.0.1:8000/v1"
-        model = model or os.getenv("NVIDIA_VISION_MODEL") or "nvidia/cosmos-reason2-2b"
-    else:
-        endpoint = endpoint or os.getenv("NVIDIA_VISION_ENDPOINT")
-        model = model or os.getenv("NVIDIA_VISION_MODEL")
-    if not endpoint:
+    if normalized not in _ALLOWED_LIVE_MODELS:
         raise ValueError(
-            f"{adapter_name} requires --detector-endpoint or NVIDIA_VISION_ENDPOINT."
+            f"Unsupported detector '{adapter_name}'. "
+            f"Allowed: {', '.join(_ALLOWED_LIVE_MODELS)}. "
+            "See docs/live-vlm-engine-brief.md AD-3."
         )
 
-    config = NvidiaEndpointConfig(endpoint=endpoint, api_key=api_key, model=model)
-    if normalized in {"nvidia-nim", "nim"}:
-        return NvidiaNimAdapter(config)
-    if normalized in {"nvidia-vss", "vss"}:
-        return NvidiaVssAdapter(config)
-    if normalized in {"nvidia-cosmos", "cosmos", "world-model"}:
+    api_key = api_key or os.getenv("NVIDIA_API_KEY")
+
+    if normalized in {"cosmos-2b", "cosmos-8b"}:
+        # vLLM serves both Cosmos sizes via OpenAI-compatible API
+        resolved_endpoint = (
+            endpoint or os.getenv("VLLM_ENDPOINT") or "http://localhost:8000/v1"
+        )
+        resolved_model = (
+            model or os.getenv("VLLM_MODEL") or _COSMOS_MODEL_MAP[normalized]
+        )
+        config = NvidiaEndpointConfig(
+            endpoint=resolved_endpoint,
+            api_key=api_key,
+            model=resolved_model,
+        )
         return NvidiaCosmosAdapter(config)
 
-    raise ValueError(
-        "Unsupported detector adapter. "
-        "Use: mock, ollama, vllm, nvidia-nim, nvidia-vss, nvidia-cosmos."
+    # normalized == "vss"
+    resolved_endpoint = endpoint or os.getenv("NVIDIA_VSS_ENDPOINT")
+    if not resolved_endpoint:
+        raise ValueError(
+            "vss adapter requires --detector-endpoint or NVIDIA_VSS_ENDPOINT. "
+            "VSS is batch-only; see docs/live-vlm-engine-brief.md AD-5."
+        )
+    config = NvidiaEndpointConfig(
+        endpoint=resolved_endpoint,
+        api_key=api_key,
+        model=model or os.getenv("NVIDIA_VSS_MODEL"),
     )
+    return NvidiaVssAdapter(config)
 
 
 def build_ffmpeg_frame_command(
@@ -236,7 +251,11 @@ def _make_annotated_jpeg(frame: InferenceFrame, vehicle_count: int) -> bytes | N
         # Centre info panel
         ts = datetime.fromtimestamp(frame.timestamp_ms / 1000, tz=UTC).strftime("%H:%M:%S UTC")
         cx, cy = W // 2, H // 2
-        draw.rectangle([(cx - 108, cy - 44), (cx + 108, cy + 64)], fill=(6, 10, 18), outline=(30, 50, 70))
+        draw.rectangle(
+            [(cx - 108, cy - 44), (cx + 108, cy + 64)],
+            fill=(6, 10, 18),
+            outline=(30, 50, 70),
+        )
         draw.text((cx, cy - 28), frame.camera_id,         fill=(200, 205, 215), anchor="mm")
         draw.text((cx, cy - 8),  "◉  SYNTHETIC  FEED",   fill=(0, 220, 90),   anchor="mm")
         draw.text((cx, cy + 16), f"Vehicles: {vehicle_count}", fill=(150, 215, 155), anchor="mm")

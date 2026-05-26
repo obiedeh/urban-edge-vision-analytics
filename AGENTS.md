@@ -29,9 +29,25 @@ tests/        Unit and smoke tests
 
 ## Detection Adapters
 
-All adapters implement `DetectionAdapter.infer(frame) -> frame`.
+All adapters implement `DetectionAdapter.infer(frame, prompt: str) -> frame`.
 `MockDetectionAdapter` is the default and has zero model dependencies.
-Do not add real model dependencies to the default install path — put them in `[vision]` extras.
+
+**Live runtime selector is locked to exactly three values:** `cosmos-2b`,
+`cosmos-8b`, `vss`. Other adapter classes (`OllamaAdapter`,
+`NvidiaNimAdapter`, `MockDetectionAdapter`) remain importable for dev/test
+but are **not** in `build_detection_adapter`'s selector branch.
+
+`vss` is **batch-only**; it does not appear in the live UI model menu.
+Use it via the `summarize-recording` CLI / `POST /recordings/{id}/summarize` API.
+
+## Live Engine Architecture
+
+- **Transport:** WebRTC via `aiortc` (NOT server-side FFmpeg subprocess). FFmpeg subprocess use is reserved for **writing** rotating MP4 recordings — never for reading live frames.
+- **Loops:** display loop and inference loop are **decoupled** via `FrameSlot` (asyncio.Queue maxsize=1, overwrite-on-put). Inference latency must never block display.
+- **Results:** stream from inference loop to frontend via SSE (`sse-starlette`).
+- **Backend:** vLLM is the only live-inference backend. Default endpoint `http://localhost:8000/v1`, default model `nvidia/Cosmos-Reason2-2B`.
+
+Full spec: `docs/live-vlm-engine-brief.md`.
 
 ## Coding Rules
 

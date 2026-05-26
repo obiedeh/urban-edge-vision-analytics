@@ -36,7 +36,10 @@ def pipeline_start(
 ) -> dict:
     """(Re)start the pipeline with a given adapter without re-saving camera config."""
     if not _CAMERA_CONFIG_PATH.exists():
-        raise HTTPException(status_code=404, detail="No camera config found. Save camera config first.")
+        raise HTTPException(
+            status_code=404,
+            detail="No camera config found. Save camera config first.",
+        )
     manager.start(
         config_path=str(_CAMERA_CONFIG_PATH),
         adapter=req.adapter,

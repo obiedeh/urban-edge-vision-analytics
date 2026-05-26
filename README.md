@@ -37,14 +37,6 @@ This project turns camera frames, vehicle detections, and flow analytics into st
 
 ---
 
-## Recommended GitHub About
-
-- **Suggested short description:** Edge vision intelligence system for infrastructure events using frame analysis, operational summaries, and edge deployment patterns.
-- **Suggested topics/tags:** `edge-ai`, `computer-vision`, `infrastructure`, `video-analytics`, `operational-ai`, `event-detection`
-- **Positioning category:** Core
-
----
-
 ## What Works Now
 
 This repository includes a runnable engineering scaffold:
@@ -99,6 +91,8 @@ tests/        Unit and smoke tests
 ## Quick Start
 
 Primary target today: Linux local development with the deterministic mock adapter. Jetson Orin is a planned deployment target after ONNX or TensorRT adapters are implemented and benchmarked.
+
+Use the live engine for real-time monitoring; use the `summarize-recording` CLI / `POST /recordings/{id}/summarize` API for after-the-fact VSS analysis. See [docs/live-vlm-engine-brief.md](docs/live-vlm-engine-brief.md) for the engine architecture.
 
 ```bash
 git clone https://github.com/obiedeh/urban-edge-vision-analytics.git
@@ -156,30 +150,22 @@ See `examples/sample_event.json`.
 
 ## Detection Adapter Strategy
 
-The current detection adapter is intentionally mocked. That is not a weakness — it is the correct engineering position at this stage.
+The live runtime selector is locked to exactly **three** options. See [docs/live-vlm-engine-brief.md](docs/live-vlm-engine-brief.md) §AD-3.
 
-Planned real adapters target the same `DetectionAdapter` interface:
+| Selector | Backend | Use |
+|---|---|---|
+| `cosmos-2b` | vLLM serving `nvidia/Cosmos-Reason2-2B` | Default. Fast, ~200-500ms on RTX 5090. |
+| `cosmos-8b` | vLLM serving `nvidia/Cosmos-Reason2-8B` | Heavy tier. ~1-2s, better reasoning. |
+| `vss` | NVIDIA VSS Blueprint endpoint | **Batch-only.** Not in the live UI; used by the `summarize-recording` pipeline. |
 
-- **ONNX Runtime** — YOLOv8n or RT-DETR-nano, CPU + CUDA
-- **TensorRT** — Jetson Orin optimized engine
-- **NVIDIA VSS** — video search and summarization over camera/video evidence
-- **NVIDIA Cosmos / world model path** — scene understanding and world-state reasoning
-- **NVIDIA NIM** — hosted detection endpoint via OpenAI-compatible API
+vLLM is the only live-inference backend. `MockDetectionAdapter` remains the test default but is not selectable at runtime. `OllamaAdapter` and `NvidiaNimAdapter` classes stay importable for dev/test but are intentionally not in the runtime selector.
 
-Install vision extras when a real model is available:
+The live camera path is split into two layers:
 
-```bash
-pip install -e .[vision]
-```
+- **Ingress:** Browser-side WebRTC (or RTSP camera profile bridged through the server).
+- **Inference:** Cosmos-2B or Cosmos-8B served via vLLM. Recorded video is summarized by VSS in a separate batch pipeline.
 
-Do not hardwire inference to one backend. Keep adapters replaceable.
-
-The current live camera path is intentionally split into two layers:
-
-- **Ingress:** Tapo RTSP feed validated with `ffplay`, sampled by FFmpeg.
-- **Inference:** current mock detector now, NVIDIA VSS / Cosmos / TensorRT / NIM adapter later.
-
-That keeps the camera transport independent from the NVIDIA model stack.
+The camera transport is independent from the model stack.
 
 ---
 

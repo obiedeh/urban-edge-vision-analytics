@@ -6,16 +6,16 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 
+from api.pipeline_manager import PipelineManager
 from events.lifecycle import EventStore
 from events.schemas import EventType, IncidentStatus, IntersectionIncident, Severity, TrafficEvent
-from api.pipeline_manager import PipelineManager
 from store.config_store import ConfigStore
 from telemetry.metrics import InferenceMetrics
 from telemetry.runtime import RuntimeSnapshot
@@ -79,7 +79,8 @@ async def lifespan(app: FastAPI):
             _nvidia_adapters = {"nvidia-nim", "nvidia-vss", "nvidia-cosmos"}
 
             # Fall back to mock if an NVIDIA adapter is saved but no endpoint is configured
-            if _saved_adapter in _nvidia_adapters and not _cam_cfg.get("nvidia_endpoint", "").strip():
+            _has_endpoint = bool(_cam_cfg.get("nvidia_endpoint", "").strip())
+            if _saved_adapter in _nvidia_adapters and not _has_endpoint:
                 logger.warning(
                     "Adapter '%s' requires an endpoint URL but none is configured — "
                     "falling back to mock adapter to avoid a crash loop.",
@@ -140,12 +141,12 @@ app.dependency_overrides[_metrics_routes._get_adapter_name] = lambda: os.getenv(
 
 from api.routes.artifacts import router as artifacts_router  # noqa: E402
 from api.routes.cameras import router as cameras_router  # noqa: E402
+from api.routes.local_inference import router as local_inference_router  # noqa: E402
 from api.routes.metrics_extra import router as metrics_extra_router  # noqa: E402
-from api.routes.pipeline import router as pipeline_router  # noqa: E402
 from api.routes.pipeline import _get_manager as _pipeline_get_manager  # noqa: E402
+from api.routes.pipeline import router as pipeline_router  # noqa: E402
 from api.routes.snapshot import router as snapshot_router  # noqa: E402
 from api.routes.use_cases import router as use_cases_router  # noqa: E402
-from api.routes.local_inference import router as local_inference_router  # noqa: E402
 
 app.dependency_overrides[_pipeline_get_manager] = lambda: _pipeline_manager
 
@@ -333,7 +334,5 @@ if _web_dist.exists():
 
     @app.get("/", include_in_schema=False)
     @app.get("/{path:path}", include_in_schema=False)
-    async def spa_fallback(path: str = "") -> "fastapi.responses.FileResponse":
-        from fastapi.responses import FileResponse
-
+    async def spa_fallback(path: str = "") -> FileResponse:
         return FileResponse(str(_web_dist / "index.html"))

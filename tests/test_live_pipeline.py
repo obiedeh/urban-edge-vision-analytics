@@ -1,7 +1,7 @@
 import pytest
 
 from analytics.flow import FlowWindow
-from vision.adapters import MockDetectionAdapter, NvidiaVssAdapter
+from vision.adapters import NvidiaCosmosAdapter, NvidiaVssAdapter
 from vision.camera_profiles import build_camera_connection
 from vision.live_pipeline import (
     LivePipelineSettings,
@@ -50,19 +50,46 @@ def test_build_ffmpeg_frame_command_can_output_mjpeg(monkeypatch):
     assert command[-5:] == ["-vcodec", "mjpeg", "-f", "image2pipe", "pipe:1"]
 
 
-def test_build_detection_adapter_selects_mock():
-    assert isinstance(build_detection_adapter("mock"), MockDetectionAdapter)
+def test_build_detection_adapter_rejects_mock():
+    # Live runtime selector is locked to {cosmos-2b, cosmos-8b, vss} per AD-3.
+    # Mock stays as the test default but is not selectable at runtime.
+    with pytest.raises(ValueError, match="Allowed: cosmos-2b, cosmos-8b, vss"):
+        build_detection_adapter("mock")
 
 
-def test_build_detection_adapter_selects_nvidia_vss():
+def test_build_detection_adapter_rejects_legacy_ollama():
+    with pytest.raises(ValueError, match="Allowed: cosmos-2b, cosmos-8b, vss"):
+        build_detection_adapter("ollama")
+
+
+def test_build_detection_adapter_selects_vss():
+    adapter = build_detection_adapter("vss", endpoint="https://nvidia.example/vss")
+    assert isinstance(adapter, NvidiaVssAdapter)
+
+
+def test_build_detection_adapter_nvidia_vss_alias_still_works():
     adapter = build_detection_adapter("nvidia-vss", endpoint="https://nvidia.example/vss")
     assert isinstance(adapter, NvidiaVssAdapter)
 
 
-def test_build_detection_adapter_defaults_to_local_cosmos():
+def test_build_detection_adapter_defaults_cosmos_2b_to_vllm():
+    adapter = build_detection_adapter("cosmos-2b")
+    assert isinstance(adapter, NvidiaCosmosAdapter)
+    assert adapter.config.endpoint == "http://localhost:8000/v1"
+    assert adapter.config.model == "nvidia/Cosmos-Reason2-2B"
+
+
+def test_build_detection_adapter_defaults_cosmos_8b_to_vllm():
+    adapter = build_detection_adapter("cosmos-8b")
+    assert isinstance(adapter, NvidiaCosmosAdapter)
+    assert adapter.config.endpoint == "http://localhost:8000/v1"
+    assert adapter.config.model == "nvidia/Cosmos-Reason2-8B"
+
+
+def test_build_detection_adapter_cosmos_alias_resolves_to_2b():
     adapter = build_detection_adapter("nvidia-cosmos")
-    assert adapter.config.endpoint == "http://127.0.0.1:8000/v1"
-    assert adapter.config.model == "nvidia/cosmos-reason2-2b"
+    assert isinstance(adapter, NvidiaCosmosAdapter)
+    assert adapter.config.model == "nvidia/Cosmos-Reason2-2B"
 
 
 def _car_frame(frame_id: str = "frame-1") -> InferenceFrame:
