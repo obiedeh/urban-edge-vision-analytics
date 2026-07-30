@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type Camera, type KpisResponse, type TrafficEvent } from "@/lib/api";
+import { api, type Camera, type KpisResponse, type LiveInferenceResult, type TrafficEvent } from "@/lib/api";
 import { CredibilityBanner } from "@/components/credibility-banner";
 import { PipelineStatusBar } from "@/components/pipeline-status-bar";
 import { cn } from "@/lib/utils";
-import { Wifi, WifiOff, AlertTriangle, Maximize2, ChevronDown, Radio, Clock } from "lucide-react";
+import { Wifi, WifiOff, AlertTriangle, Maximize2, ChevronDown, Radio, Clock, BrainCircuit, Video, Play } from "lucide-react";
 
 const GRID_FPS = 1;
 const STALE_WARN_MS = 10_000;
@@ -345,6 +345,12 @@ function VideoFeedPane({ camera }: { camera: Camera }) {
   const [err, setErr] = useState(false);
   const [now, setNow] = useState(() => new Date());
   const [showClock, setShowClock] = useState(true);
+  const [webrtcState, setWebrtcState] = useState<"idle" | "connecting" | "live" | "fallback">("idle");
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [liveResult, setLiveResult] = useState<LiveInferenceResult | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const peerRef = useRef<RTCPeerConnection | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const frameRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const clockRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const FEED_FPS = 4;
@@ -356,6 +362,96 @@ function VideoFeedPane({ camera }: { camera: Camera }) {
     refresh();
     frameRef.current = setInterval(refresh, 1000 / FEED_FPS);
     return () => { if (frameRef.current) clearInterval(frameRef.current); };
+  }, [camera.id]);
+
+  async function startWebRtc() {
+    setCameraError(null);
+    if (!window.isSecureContext) {
+      setWebrtcState("fallback");
+      setCameraError("Camera access requires localhost or trusted HTTPS.");
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia || !window.RTCPeerConnection) {
+      setWebrtcState("fallback");
+      setCameraError("This browser does not expose WebRTC camera APIs.");
+      return;
+    }
+
+    try {
+      setWebrtcState("connecting");
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      peerRef.current?.close();
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          frameRate: { ideal: 30 },
+        },
+        audio: false,
+      });
+
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+
+      const peer = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      });
+      peerRef.current = peer;
+      stream.getTracks().forEach((track) => peer.addTrack(track, stream));
+
+      const offer = await peer.createOffer();
+      await peer.setLocalDescription(offer);
+      const answer = await api.webrtc.offer({
+        sdp: offer.sdp ?? "",
+        type: offer.type,
+        camera_id: camera.id,
+      });
+      await peer.setRemoteDescription({
+        sdp: answer.sdp,
+        type: answer.type,
+      });
+      setWebrtcState("live");
+    } catch (error) {
+      setWebrtcState("fallback");
+      setCameraError(error instanceof Error ? error.message : "Camera start failed.");
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      peerRef.current?.close();
+      peerRef.current = null;
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      peerRef.current?.close();
+      peerRef.current = null;
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      setLiveResult(null);
+      setWebrtcState("idle");
+      setCameraError(null);
+    };
+  }, [camera.id]);
+
+  // VLM results stream; independent from the rendered video stream.
+  useEffect(() => {
+    const events = new EventSource(api.liveResultsUrl());
+
+    events.addEventListener("inference_result", (message) => {
+      try {
+        const result = JSON.parse((message as MessageEvent).data) as LiveInferenceResult;
+        if (result.camera_id === camera.id) {
+          setLiveResult(result);
+        }
+      } catch {
+        // Ignore malformed SSE payloads; the next result will replace it.
+      }
+    });
+
+    return () => events.close();
   }, [camera.id]);
 
   // Wall-clock tick (1 s)
@@ -423,7 +519,53 @@ function VideoFeedPane({ camera }: { camera: Camera }) {
 
       {/* Video area */}
       <div className="relative bg-black aspect-video w-full">
-        {err ? (
+        {webrtcState === "live" || webrtcState === "connecting" ? (
+          <>
+            <video
+              ref={videoRef}
+              autoPlay
+              muted
+              playsInline
+              className="absolute inset-0 w-full h-full object-contain"
+            />
+            <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded border border-emerald-500/40 bg-black/65 px-2 py-1 text-[10px] font-semibold text-emerald-300">
+              <Video className="h-3 w-3" />
+              {webrtcState === "live" ? "WEBRTC LIVE" : "CONNECTING"}
+            </div>
+          </>
+        ) : webrtcState === "idle" ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-muted-foreground">
+            <button
+              type="button"
+              onClick={startWebRtc}
+              className="inline-flex items-center gap-2 rounded border border-emerald-500/50 bg-emerald-500/15 px-3 py-2 text-xs font-semibold text-emerald-200 transition-colors hover:bg-emerald-500/25"
+            >
+              <Play className="h-3.5 w-3.5" />
+              Start Camera
+            </button>
+            <span className="max-w-xs text-center text-[10px] text-muted-foreground/70">
+              {window.isSecureContext
+                ? "The browser will ask for camera permission."
+                : "Open this page on localhost or trusted HTTPS for camera access."}
+            </span>
+          </div>
+        ) : cameraError ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground gap-2 px-4 text-center">
+            <WifiOff className="h-6 w-6" />
+            <span className="text-xs">{cameraError}</span>
+            <span className="text-[10px] text-muted-foreground/60">
+              Use localhost on this machine, or trust the HTTPS certificate.
+            </span>
+            <button
+              type="button"
+              onClick={startWebRtc}
+              className="mt-1 inline-flex items-center gap-2 rounded border border-border px-2.5 py-1.5 text-[10px] font-semibold text-foreground transition-colors hover:border-primary/50"
+            >
+              <Play className="h-3 w-3" />
+              Retry
+            </button>
+          </div>
+        ) : err ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground gap-2">
             <WifiOff className="h-6 w-6" />
             <span className="text-xs">
@@ -444,6 +586,31 @@ function VideoFeedPane({ camera }: { camera: Camera }) {
             onLoad={() => setErr(false)}
           />
         )}
+        <div className="absolute inset-x-3 bottom-3 rounded border border-border/70 bg-background/90 p-3 shadow-lg backdrop-blur">
+          <div className="flex items-start gap-2">
+            <BrainCircuit className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  VLM Result
+                </span>
+                <span className="font-mono text-[10px] text-muted-foreground/70 shrink-0">
+                  {liveResult?.inference_latency_ms != null
+                    ? `${liveResult.inference_latency_ms.toFixed(1)} ms`
+                    : "waiting"}
+                </span>
+              </div>
+              <p className="mt-1 line-clamp-2 text-xs text-foreground">
+                {liveResult?.vlm_summary || "Waiting for the next inference result."}
+              </p>
+              {liveResult?.vlm_reasoning && (
+                <p className="mt-1 truncate text-[10px] text-muted-foreground">
+                  {liveResult.vlm_reasoning}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

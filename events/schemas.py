@@ -53,6 +53,9 @@ class TrafficEvent(BaseModel):
     track_ids: list[str] = Field(default_factory=list)
     confidence: float = Field(ge=0.0, le=1.0, default=1.0)
     operator_review_recommended: bool = False
+    vlm_summary: str | None = None
+    vlm_reasoning: str | None = None
+    vlm_model: str | None = None
     metadata: dict = Field(default_factory=dict)
 
 

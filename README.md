@@ -70,6 +70,18 @@ Camera / Video Source
                                                           (events, incidents, metrics)
 ```
 
+```mermaid
+flowchart LR
+    browser[Browser webcam<br/>native FPS] -->|WebRTC offer/answer| api[FastAPI /webrtc/offer]
+    api --> track[IncomingVideoTrack]
+    track --> slot[FrameSlot<br/>latest frame only]
+    slot --> loop[InferenceLoop<br/>cadence controlled]
+    loop --> adapter[Cosmos via vLLM<br/>or mock in tests]
+    adapter --> result[Structured TrafficEvent<br/>vlm_summary/reasoning/model]
+    result --> sse[GET /live/results SSE]
+    sse --> overlay[Browser overlay]
+```
+
 ---
 
 ## Repository Layout
@@ -109,6 +121,19 @@ Open:
 - OpenAPI docs: `http://127.0.0.1:8080/docs`
 - Inference metrics: `http://127.0.0.1:8080/metrics/inference`
 - Runtime snapshot: `http://127.0.0.1:8080/runtime`
+
+Browser WebRTC live path:
+
+```bash
+uvicorn api.main:app --reload --port 8080
+cd web
+pnpm dev
+```
+
+Open `http://127.0.0.1:3000/live`, allow browser camera access, and watch
+the video render directly in the browser while VLM results stream from
+`GET /live/results`. The legacy RTSP FFmpeg reader is still available for
+one release through `urban-edge-live-pipeline --legacy-ffmpeg`.
 
 ---
 
@@ -150,20 +175,24 @@ See `examples/sample_event.json`.
 
 ## Detection Adapter Strategy
 
-The live runtime selector is locked to exactly **three** options. See [docs/live-vlm-engine-brief.md](docs/live-vlm-engine-brief.md) §AD-3.
+The live runtime selector exposes NVIDIA Cosmos and Gemma VLM presets. See [docs/live-vlm-engine-brief.md](docs/live-vlm-engine-brief.md) §AD-3.
 
 | Selector | Backend | Use |
 |---|---|---|
 | `cosmos-2b` | vLLM serving `nvidia/Cosmos-Reason2-2B` | Default. Fast, ~200-500ms on RTX 5090. |
 | `cosmos-8b` | vLLM serving `nvidia/Cosmos-Reason2-8B` | Heavy tier. ~1-2s, better reasoning. |
+| `cosmos-3` | NIM/vLLM serving `nvidia/cosmos3-nano-reasoner` | Cosmos 3 Nano reasoner. Fits RTX 5090 class GPUs with headroom. |
+| `gemma-4` | Ollama serving `gemma4:e4b` | Recommended quantized Gemma 4 live starting point. |
+| `gemma-4-vllm` | vLLM serving `google/gemma-4-E4B-it` | Official Gemma 4 E4B Hugging Face checkpoint. |
+| `gemma-4-26b-nvfp4` | vLLM serving `nvidia/Gemma-4-26B-A4B-NVFP4` | Quantized high-quality Gemma 4 target; dedicate most GPU memory. |
 | `vss` | NVIDIA VSS Blueprint endpoint | **Batch-only.** Not in the live UI; used by the `summarize-recording` pipeline. |
 
-vLLM is the only live-inference backend. `MockDetectionAdapter` remains the test default but is not selectable at runtime. `OllamaAdapter` and `NvidiaNimAdapter` classes stay importable for dev/test but are intentionally not in the runtime selector.
+OpenAI-compatible chat endpoints are the live-inference path: vLLM/NIM for Cosmos and Ollama or vLLM for Gemma. `MockDetectionAdapter` remains the test default but is not selectable at runtime. `OllamaAdapter` and `NvidiaNimAdapter` classes stay importable for dev/test and local model checks.
 
 The live camera path is split into two layers:
 
 - **Ingress:** Browser-side WebRTC (or RTSP camera profile bridged through the server).
-- **Inference:** Cosmos-2B or Cosmos-8B served via vLLM. Recorded video is summarized by VSS in a separate batch pipeline.
+- **Inference:** one selected Cosmos or Gemma VLM served via vLLM/NIM. Recorded video is summarized by VSS in a separate batch pipeline.
 
 The camera transport is independent from the model stack.
 

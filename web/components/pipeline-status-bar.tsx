@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { api, type PipelineStatus, type OllamaModel } from "@/lib/api";
+import {
+  ApiError,
+  api,
+  type PipelineStatus,
+  type OllamaModel,
+  type CatalogModel,
+  type VllmStatus,
+} from "@/lib/api";
 import {
   Activity, Square, Play, ChevronDown, ChevronRight,
   AlertTriangle, Loader2, CheckCircle2, XCircle, Wifi,
@@ -22,8 +29,8 @@ interface EndpointPreset {
 }
 function getEndpointPresets(backend: string): EndpointPreset[] {
   if (backend === "vllm")   return [
-    { url: "http://localhost:8001", label: ":8001 (vLLM default)" },
-    { url: "http://localhost:8000", label: ":8000" },
+    { url: "http://localhost:8000", label: ":8000 (vLLM default)" },
+    { url: "http://localhost:8001", label: ":8001" },
     { url: "custom", label: "Custom URL…" },
   ];
   if (backend === "ollama") return [
@@ -55,7 +62,7 @@ export function PipelineStatusBar({ pollMs = 3000 }: Props) {
 
   // Switcher fields
   const [backend, setBackend]               = useState("vllm");
-  const [selectedEndpoint, setSelectedEndpoint] = useState("http://localhost:8001");
+  const [selectedEndpoint, setSelectedEndpoint] = useState("http://localhost:8000");
   const [customUrl, setCustomUrl]           = useState("");   // only used when preset = "custom"
   const [selectedModel, setSelectedModel]   = useState("");
   const [customModel, setCustomModel]       = useState("");
@@ -63,8 +70,18 @@ export function PipelineStatusBar({ pollMs = 3000 }: Props) {
   const [probe, setProbe]                   = useState<ProbeState>("idle");
   // Models detected from the active endpoint
   const [installedModels, setInstalledModels] = useState<OllamaModel[]>([]);
+  const [catalogModels, setCatalogModels] = useState<CatalogModel[]>([]);
+  const [vllmStatus, setVllmStatus] = useState<VllmStatus | null>(null);
+  const [vllmBusy, setVllmBusy] = useState(false);
+  const [actionError, setActionError] = useState("");
 
   const probeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const selectedVllmEndpoint =
+    selectedEndpoint === "custom" ? customUrl.trim() : selectedEndpoint;
+  const vllmPollEndpoint =
+    backend === "vllm" && selectedVllmEndpoint
+      ? selectedVllmEndpoint
+      : "http://localhost:8000";
 
   // ── Poll status ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -77,6 +94,21 @@ export function PipelineStatusBar({ pollMs = 3000 }: Props) {
     const t = setInterval(tick, pollMs);
     return () => { dead = true; clearInterval(t); };
   }, [pollMs]);
+
+  useEffect(() => {
+    let dead = false;
+    const tick = async () => {
+      try {
+        const s = await api.localInference.vllm.status(vllmPollEndpoint);
+        if (!dead) setVllmStatus(s);
+      } catch {
+        if (!dead) setVllmStatus(null);
+      }
+    };
+    tick();
+    const t = setInterval(tick, pollMs);
+    return () => { dead = true; clearInterval(t); };
+  }, [pollMs, vllmPollEndpoint]);
 
   // ── On open: pre-populate from running config, then auto-probe ──────────────
   useEffect(() => {
@@ -99,6 +131,15 @@ export function PipelineStatusBar({ pollMs = 3000 }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [switchOpen]);
 
+  useEffect(() => {
+    if (!switchOpen) return;
+    let dead = false;
+    api.localInference.catalog()
+      .then(r => { if (!dead) setCatalogModels(r.models); })
+      .catch(() => { if (!dead) setCatalogModels([]); });
+    return () => { dead = true; };
+  }, [switchOpen]);
+
   // Auto-select first vision model
   useEffect(() => {
     if (installedModels.length > 0 && !selectedModel && !customModel) {
@@ -111,6 +152,7 @@ export function PipelineStatusBar({ pollMs = 3000 }: Props) {
   function changeBackend(v: string) {
     setBackend(v);
     setProbe("idle");
+    setActionError("");
     setSelectedModel("");
     setCustomModel("");
     setCustomUrl("");
@@ -124,6 +166,7 @@ export function PipelineStatusBar({ pollMs = 3000 }: Props) {
 
   async function changeEndpoint(url: string) {
     setSelectedEndpoint(url);
+    setActionError("");
     setSelectedModel("");
     setCustomModel("");
     setInstalledModels([]);
@@ -133,6 +176,7 @@ export function PipelineStatusBar({ pollMs = 3000 }: Props) {
     try {
       if (backend === "vllm") {
         const r = await api.localInference.vllm.status(url);
+        setVllmStatus(r);
         setProbe(r.running ? "online" : "offline");
         if (r.running) {
           const mr = await api.localInference.vllm.models(url);
@@ -149,13 +193,171 @@ export function PipelineStatusBar({ pollMs = 3000 }: Props) {
     } catch { setProbe("offline"); }
   }
 
+  const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+  function actionErrorMessage(err: unknown, fallback: string): string {
+    if (err instanceof ApiError) {
+      const detail = err.detail?.detail ?? err.detail;
+      if (typeof detail === "string") return detail;
+      if (detail && typeof detail === "object" && "message" in detail) {
+        const message = (detail as { message?: unknown }).message;
+        if (typeof message === "string") return message;
+      }
+      return fallback;
+    }
+    return err instanceof Error ? err.message : fallback;
+  }
+
+  async function refreshVllm(endpoint?: string): Promise<VllmStatus | null> {
+    const status = await api.localInference.vllm.status(endpoint);
+    setVllmStatus(status);
+    setProbe(status.running ? "online" : "offline");
+    if (status.running) {
+      const models = await api.localInference.vllm.models(endpoint);
+      setInstalledModels(models.models);
+    }
+    return status;
+  }
+
+  function vllmFailureMessage(status: VllmStatus | null): string {
+    const logText = (status?.managed_log_tail ?? []).join("\n").toLowerCase();
+    const model = status?.managed_model || effectiveVllmModel || effectiveModel || "selected model";
+    if (
+      logText.includes("gated repo")
+      || logText.includes("must have access")
+      || logText.includes("401 client error")
+    ) {
+      return (
+        `Access denied for ${model}. This Hugging Face repo is gated; accept access on `
+        + "Hugging Face/NVIDIA and use a token with that access, or choose Cosmos 3 Nano."
+      );
+    }
+    if (
+      logText.includes("out of memory")
+      || logText.includes("cuda error: out of memory")
+      || logText.includes("not enough memory")
+      || logText.includes("exit code: -9")
+      || logText.includes("engine core initialization failed")
+      || logText.includes("orchestrator initialization failed")
+      || logText.includes("scheduler is dead")
+      || logText.includes("eoferror")
+    ) {
+      return (
+        `vLLM-Omni could not initialize ${model}. The diffusion worker was killed during startup; `
+        + "free system RAM/GPU memory, confirm a real HF_TOKEN is set, unload vLLM, then retry."
+      );
+    }
+    return `vLLM failed while loading ${model}. Check the vLLM log tail below.`;
+  }
+
+  async function waitForVllmReady(endpoint?: string): Promise<void> {
+    const deadline = Date.now() + 10 * 60 * 1000;
+    while (Date.now() < deadline) {
+      const status = await refreshVllm(endpoint);
+      if (status?.running) return;
+      if (status?.managed_state === "failed") {
+        throw new Error(vllmFailureMessage(status));
+      }
+      await sleep(3000);
+    }
+    throw new Error("Timed out waiting for vLLM to become ready");
+  }
+
+  async function loadVllmOnly() {
+    if (!effectiveModel) {
+      setActionError("Select a vLLM model first");
+      return;
+    }
+    setVllmBusy(true);
+    setActionError("");
+    try {
+      await api.localInference.vllm.start(effectiveVllmModel, resolvedUrl || undefined);
+      await waitForVllmReady(resolvedUrl || undefined);
+    } catch (err) {
+      setActionError(actionErrorMessage(err, "Failed to load vLLM"));
+    } finally {
+      setVllmBusy(false);
+    }
+  }
+
+  async function unloadVllm() {
+    setVllmBusy(true);
+    setActionError("");
+    try {
+      await api.localInference.vllm.stop();
+      await refreshVllm("http://localhost:8000").catch(() => null);
+    } catch (err) {
+      setActionError(actionErrorMessage(err, "Failed to unload vLLM"));
+    } finally {
+      setVllmBusy(false);
+    }
+  }
+
   const effectiveModel = customModel.trim() || selectedModel;
+  const recommendedModels = catalogModels
+    .filter(m =>
+      m.backend === backend
+      && (m.family === "cosmos-reason2" || m.family === "cosmos3" || m.family === "gemma4")
+    )
+    .sort((a, b) => {
+      const aGated = a.gated ? 1 : 0;
+      const bGated = b.gated ? 1 : 0;
+      const aRecommended = a.tags.includes("recommended") ? 0 : 1;
+      const bRecommended = b.tags.includes("recommended") ? 0 : 1;
+      return (
+        aGated - bGated
+        || aRecommended - bRecommended
+        || a.vram_gb - b.vram_gb
+        || a.label.localeCompare(b.label)
+      );
+    });
+  const selectedCatalogModel = recommendedModels.find(
+    m => m.name === effectiveModel || m.hf_id === effectiveModel
+  );
+  const effectiveVllmModel =
+    backend === "vllm" && selectedCatalogModel?.hf_id
+      ? selectedCatalogModel.hf_id
+      : effectiveModel;
+  const effectiveAdapterModel = backend === "vllm" ? effectiveVllmModel : effectiveModel;
   const isNvidia   = NVIDIA_ADAPTERS.has(backend);
   const resolvedUrl = isNvidia
     ? customUrl.trim()
     : selectedEndpoint === "custom" ? customUrl.trim() : selectedEndpoint;
   const needsProbe = backend !== "mock" && backend !== "disabled";
-  const canApply   = !needsProbe || probe === "online";
+  const canApply = backend === "vllm"
+    ? Boolean(effectiveModel && resolvedUrl)
+    : !needsProbe || probe === "online";
+  const vllmIsReady = Boolean(vllmStatus?.running);
+  const vllmIsLoading = vllmStatus?.managed_state === "starting" && !vllmStatus.running;
+  const vllmIsFailed = vllmStatus?.managed_state === "failed";
+  const vllmColor = vllmIsReady
+    ? "emerald"
+    : vllmIsLoading
+      ? "yellow"
+      : "red";
+  const vllmLabel = vllmIsReady
+    ? "vLLM ready"
+    : vllmIsLoading
+      ? "vLLM loading"
+      : vllmIsFailed
+        ? "vLLM failed"
+        : "vLLM offline";
+  const vllmProgress = vllmIsReady ? 100 : vllmIsLoading ? 62 : vllmIsFailed ? 100 : 8;
+  const vllmDotCls = vllmColor === "emerald"
+    ? "bg-emerald-400"
+    : vllmColor === "yellow"
+      ? "bg-yellow-400 animate-pulse"
+      : "bg-red-400";
+  const vllmTextCls = vllmColor === "emerald"
+    ? "text-emerald-400"
+    : vllmColor === "yellow"
+      ? "text-yellow-400"
+      : "text-red-400";
+  const vllmBarCls = vllmColor === "emerald"
+    ? "bg-emerald-400"
+    : vllmColor === "yellow"
+      ? "bg-yellow-400"
+      : "bg-red-400";
 
   // ── Probe ────────────────────────────────────────────────────────────────────
   async function runProbe() {
@@ -171,6 +373,7 @@ export function PipelineStatusBar({ pollMs = 3000 }: Props) {
         }
       } else if (backend === "vllm") {
         const r = await api.localInference.vllm.status(ep);
+        setVllmStatus(r);
         setProbe(r.running ? "online" : "offline");
         if (r.running) {
           const mr = await api.localInference.vllm.models(ep);
@@ -191,31 +394,50 @@ export function PipelineStatusBar({ pollMs = 3000 }: Props) {
   // ── Stop ─────────────────────────────────────────────────────────────────────
   async function stop() {
     setBusy(true);
+    setActionError("");
     try {
       await api.pipeline.stop();
       await api.pipeline.switchAdapter("disabled").catch(() => null);
+      await api.localInference.vllm.stop().catch(() => null);
+      await refreshVllm("http://localhost:8000").catch(() => null);
       setStatus(s => s ? { ...s, state: "stopped" } : s);
       setSwitchOpen(false);
-    } catch { /* ignore */ } finally { setBusy(false); }
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to stop pipeline");
+    } finally { setBusy(false); }
   }
 
   // ── Apply ─────────────────────────────────────────────────────────────────────
   async function applyAdapter() {
     setBusy(true);
+    setActionError("");
     try {
       if (LOCAL_ADAPTERS.has(backend)) {
+        if (backend === "vllm" && effectiveModel) {
+          setVllmBusy(true);
+          await api.localInference.vllm.start(effectiveVllmModel, resolvedUrl || undefined);
+          await waitForVllmReady(resolvedUrl || undefined);
+          setVllmBusy(false);
+        }
         await api.pipeline.switchAdapter(
           backend, undefined, undefined,
-          (backend === "ollama" || backend === "vllm") ? effectiveModel || undefined : undefined,
+          (backend === "ollama" || backend === "vllm") ? effectiveAdapterModel || undefined : undefined,
           resolvedUrl || undefined,
         );
       } else {
         await api.pipeline.switchAdapter(backend, resolvedUrl || undefined, nvidiaKey || undefined);
       }
+      if (status?.adapter === "vllm" && backend !== "vllm") {
+        await api.localInference.vllm.stop().catch(() => null);
+        await refreshVllm("http://localhost:8000").catch(() => null);
+      }
       setSwitchOpen(false);
       setProbe("idle");
       setStatus(s => s ? { ...s, state: "running", adapter: backend } : s);
-    } catch { /* ignore */ } finally { setBusy(false); }
+    } catch (err) {
+      setVllmBusy(false);
+      setActionError(actionErrorMessage(err, "Failed to apply adapter"));
+    } finally { setBusy(false); }
   }
 
   // ── Derived display ───────────────────────────────────────────────────────────
@@ -252,6 +474,38 @@ export function PipelineStatusBar({ pollMs = 3000 }: Props) {
       </span>
     );
   };
+
+  const VllmReadiness = ({ compact = false }: { compact?: boolean }) => (
+    <div
+      className={cn(
+        "rounded border border-border bg-background/60",
+        compact ? "px-2 py-1 min-w-36" : "px-2.5 py-2 space-y-1.5"
+      )}
+    >
+      <div className="flex items-center gap-1.5 min-w-0">
+        <span className={cn("h-2 w-2 rounded-full shrink-0", vllmDotCls)} />
+        <span className={cn("text-[10px] font-medium shrink-0", vllmTextCls)}>
+          {vllmLabel}
+        </span>
+        {vllmStatus?.managed_model && !compact && (
+          <span className="min-w-0 truncate text-[10px] font-mono text-muted-foreground/70">
+            {vllmStatus.managed_model}
+          </span>
+        )}
+      </div>
+      <div className="h-1.5 rounded bg-muted overflow-hidden">
+        <div
+          className={cn("h-full transition-all", vllmBarCls)}
+          style={{ width: `${vllmProgress}%` }}
+        />
+      </div>
+      {!compact && vllmStatus?.managed_log_tail?.length ? (
+        <pre className="max-h-16 overflow-y-auto whitespace-pre-wrap rounded bg-black/30 px-2 py-1 text-[10px] text-muted-foreground/70">
+          {vllmStatus.managed_log_tail.slice(-4).join("\n")}
+        </pre>
+      ) : null}
+    </div>
+  );
 
   // ── Switch panel ──────────────────────────────────────────────────────────────
   const switcherPanel = switchOpen && (
@@ -444,18 +698,55 @@ export function PipelineStatusBar({ pollMs = 3000 }: Props) {
             </p>
           )}
 
+          {recommendedModels.length > 0 && (
+            <select
+              value=""
+              onChange={e => {
+                if (!e.target.value) return;
+                setSelectedModel("");
+                setCustomModel(e.target.value);
+              }}
+              className="w-full rounded border border-input bg-background px-2 py-1.5 text-xs text-foreground"
+            >
+              <option value="">Presets: Cosmos / Gemma</option>
+              {recommendedModels.map(m => (
+                <option key={`${m.backend}:${m.name}`} value={m.name}>
+                  {m.label} · {m.vram_gb} GB VRAM
+                  {m.ram_gb ? ` · ${m.ram_gb} GB RAM` : ""}
+                  {m.gated ? " · HF access required" : ""}
+                </option>
+              ))}
+            </select>
+          )}
+
           {/* Free-text override — type any model name not in the list */}
           <input
             type="text"
             placeholder={
               backend === "vllm"
-                ? "or type a model ID: nvidia/cosmos-reason2-2b …"
-                : "or type: gemma4:27b-q4_K_M, cosmos-reason2:2b …"
+                ? "or type: nvidia/cosmos3-nano-reasoner, google/gemma-4-E4B-it"
+                : "or type: gemma4:e4b, gemma4:12b"
             }
             value={customModel}
             onChange={e => { setCustomModel(e.target.value); if (e.target.value) setSelectedModel(""); }}
             className="w-full rounded border border-input bg-background px-2 py-1.5 text-[10px] font-mono text-foreground placeholder:text-muted-foreground/30"
           />
+
+          {selectedCatalogModel && (
+            <div className="space-y-1">
+              <p className="text-[10px] text-muted-foreground/50">
+                {selectedCatalogModel.description} · {selectedCatalogModel.tier} tier
+                {selectedCatalogModel.ram_gb ? ` · ${selectedCatalogModel.ram_gb} GB RAM` : ""}
+                {selectedCatalogModel.launch_bin ? ` · ${selectedCatalogModel.launch_bin}` : ""}
+              </p>
+              {selectedCatalogModel.gated && (
+                <p className="flex items-center gap-1 text-[10px] text-yellow-400">
+                  <AlertTriangle className="h-3 w-3 shrink-0" />
+                  {selectedCatalogModel.access_note ?? "Requires Hugging Face access."}
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Active selection preview */}
           {effectiveModel && (
@@ -470,6 +761,39 @@ export function PipelineStatusBar({ pollMs = 3000 }: Props) {
             </p>
           )}
         </div>
+      )}
+
+      {backend === "vllm" && (
+        <div className="space-y-2">
+          <VllmReadiness />
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={loadVllmOnly}
+              disabled={vllmBusy || !effectiveModel || !resolvedUrl}
+              className="flex items-center gap-1 rounded border border-border px-2.5 py-1 text-[10px] text-muted-foreground hover:text-foreground hover:border-primary/40 disabled:opacity-40 transition-colors"
+            >
+              {vllmBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+              {vllmBusy ? "Loading vLLM…" : vllmIsReady ? "Reload vLLM" : "Load vLLM"}
+            </button>
+            <button
+              type="button"
+              onClick={unloadVllm}
+              disabled={vllmBusy || (!vllmStatus?.managed && !vllmStatus?.managed_state)}
+              className="flex items-center gap-1 rounded border border-red-500/25 px-2.5 py-1 text-[10px] text-red-400/70 hover:text-red-400 hover:bg-red-500/10 disabled:opacity-40 transition-colors"
+            >
+              <Square className="h-3 w-3" />
+              Unload vLLM
+            </button>
+          </div>
+        </div>
+      )}
+
+      {actionError && (
+        <p className="flex items-center gap-1.5 rounded border border-red-500/25 bg-red-500/10 px-2 py-1 text-[10px] text-red-400">
+          <AlertTriangle className="h-3 w-3 shrink-0" />
+          {actionError}
+        </p>
       )}
 
       {/* ④ Actions */}
@@ -493,7 +817,11 @@ export function PipelineStatusBar({ pollMs = 3000 }: Props) {
           )}
         >
           {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
-          {busy ? "Starting…" : canApply ? "Apply" : "Check first"}
+          {busy
+            ? (vllmBusy ? "Loading vLLM…" : "Starting…")
+            : canApply
+              ? (backend === "vllm" && !vllmIsReady ? "Load + Apply" : "Apply")
+              : "Check first"}
         </button>
       </div>
     </div>
@@ -528,6 +856,7 @@ export function PipelineStatusBar({ pollMs = 3000 }: Props) {
           {adapterLabel}
         </span>
       )}
+      <VllmReadiness compact />
       {status?.camera_id && (
         <span className="text-muted-foreground/60 text-[10px]">{status.camera_id}</span>
       )}

@@ -66,6 +66,8 @@ class PipelineManager:
             ]
             if use_synthetic:
                 cmd.append("--synthetic")
+            else:
+                cmd.append("--legacy-ffmpeg")
             if local_model:
                 cmd += ["--detector-model", local_model]
 

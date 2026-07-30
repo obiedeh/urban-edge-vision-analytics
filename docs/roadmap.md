@@ -28,7 +28,7 @@
 ## Phase 4 — Operator Workflows
 
 Authoritative spec: [`docs/operator-wrapper-brief.md`](operator-wrapper-brief.md).
-
+Implementation handoff: [`docs/handoff-2026-07-30-1102-CDT.md`](handoff-2026-07-30-1102-CDT.md).
 
 Phase 4 scope locked to three use case packs + compatibility rule +
 configurable report interval + honest Metrics & KPIs dashboard, in three

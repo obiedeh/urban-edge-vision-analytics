@@ -12,8 +12,8 @@ Rebuild the live video + VLM inference engine so that:
 
 1. **Video is smooth** (camera-native FPS in the browser, not 1 FPS slideshows)
 2. **Inference runs independently** of display and never blocks it
-3. **The model menu is exactly three options**: Cosmos-Reason2-2B, Cosmos-Reason2-8B, NVIDIA VSS endpoint
-4. **vLLM is the only live-inference backend** (Ollama removed from the runtime selector)
+3. **The model menu includes Cosmos 2, Cosmos 3, and Gemma 4 presets**; VSS stays batch-only
+4. **OpenAI-compatible chat endpoints are the live-inference backend** (vLLM/NIM for Cosmos, Ollama or vLLM for Gemma)
 5. **Recorded MP4 → VSS summarization** exists as a separate batch pipeline alongside live
 
 The project keeps its unique value: structured `TrafficEvent` + operator review workflow + RTSP camera profiles + traffic-domain use case packs. We are **not forking** [nvidia-ai-iot/live-vlm-webui](https://github.com/nvidia-ai-iot/live-vlm-webui). We are adopting four of its patterns and writing them into this codebase.
@@ -83,18 +83,22 @@ Live-vlm-webui's selling point — *"smooth video while VLM processes frames in 
 **Configurable at runtime:**
 - `inference_interval_ms` (default 1000, min 100)
 - `target_resolution` (default `640x360`)
-- `model_id` (cosmos-2b | cosmos-8b | vss — see AD-3)
+- `model_id` (cosmos-2b | cosmos-8b | cosmos-3 | gemma-4 | gemma-4-vllm | gemma-4-26b-nvfp4 | vss — see AD-3)
 - `prompt_preset` (see AD-6)
 
-### AD-3: Model menu locked to exactly three options
+### AD-3: Live Model Menu
 
 | Selector value | Backend | What it is |
 |---|---|---|
 | `cosmos-2b` | vLLM serving `nvidia/Cosmos-Reason2-2B` | Default. Fast, ~200-500ms on RTX 5090 |
 | `cosmos-8b` | vLLM serving `nvidia/Cosmos-Reason2-8B` | Heavy tier. ~1-2s, better reasoning |
+| `cosmos-3` | NIM/vLLM serving `nvidia/cosmos3-nano-reasoner` | Cosmos 3 Nano reasoner |
+| `gemma-4` | Ollama serving `gemma4:e4b` | Recommended quantized Gemma 4 live starting point |
+| `gemma-4-vllm` | vLLM serving `google/gemma-4-E4B-it` | Official Gemma 4 E4B Hugging Face checkpoint |
+| `gemma-4-26b-nvfp4` | vLLM serving `nvidia/Gemma-4-26B-A4B-NVFP4` | Quantized Gemma 4 target for Blackwell GPUs |
 | `vss` | NVIDIA VSS Blueprint endpoint | **Batch-only.** Not exposed in live selector. Used by recorded-video pipeline (AD-5). |
 
-`build_detection_adapter` validates against this exact set and rejects anything else with a clear error. `OllamaAdapter`, `NvidiaNimAdapter`, and `MockDetectionAdapter` classes remain importable (mock is the test default; others are dev-only) but are **not in the runtime selector**.
+`build_detection_adapter` validates against this set and rejects anything else with a clear error. `OllamaAdapter`, `NvidiaNimAdapter`, and `MockDetectionAdapter` classes remain importable; mock is the test default.
 
 **Default vLLM endpoint:** `http://localhost:8000/v1` (env: `VLLM_ENDPOINT`)
 **Default model env:** `VLLM_MODEL=nvidia/Cosmos-Reason2-2B`
@@ -168,8 +172,8 @@ Four commits, in order. **One commit per PR.** Do not bundle.
 **File changes:**
 - `api/main.py:336` — fix `F821 Undefined name 'fastapi'`. Read the line, identify the bare `fastapi.<Something>` reference, add the missing import or fix the reference.
 - All files reported by `ruff check api vision events analytics telemetry tests examples` — fix the 14 ruff errors. Most are `E501` (line length), `F401` (unused imports), `UP037` (quoted type annotations).
-- `vision/live_pipeline.py` — in `build_detection_adapter`, lock the selector to exactly `{cosmos-2b, cosmos-8b, vss}`. All other selector values raise `ValueError` with a clear message listing the three allowed options. `OllamaAdapter`, `NvidiaNimAdapter`, `MockDetectionAdapter` import lines stay (other code may use them); they just don't appear in the selector branch. Defaults: `cosmos` resolves to `cosmos-2b` with `nvidia/Cosmos-Reason2-2B` and `VLLM_ENDPOINT` (not `NVIDIA_VISION_ENDPOINT`).
-- `README.md` — delete the "Recommended GitHub About" block. Update the "Detection Adapter Strategy" section to reflect the locked three-model menu. Add a "Live vs Batch" decision sentence under Quick Start.
+- `vision/live_pipeline.py` — in `build_detection_adapter`, validate the live selector values. Unknown values raise `ValueError` with a clear message listing the allowed options. `OllamaAdapter`, `NvidiaNimAdapter`, `MockDetectionAdapter` import lines stay because other code may use them. Defaults: `cosmos` resolves to `cosmos-2b` with `nvidia/Cosmos-Reason2-2B` and `VLLM_ENDPOINT` (not `NVIDIA_VISION_ENDPOINT`).
+- `README.md` — delete the "Recommended GitHub About" block. Update the "Detection Adapter Strategy" section to reflect the live model menu. Add a "Live vs Batch" decision sentence under Quick Start.
 - `LICENSE` — add Apache 2.0 (matches NVIDIA reference projects; matches the upstream license of patterns we're adopting).
 
 **Acceptance:**
@@ -238,7 +242,7 @@ Four commits, in order. **One commit per PR.** Do not bundle.
 - `web/lib/settings-store.ts` — zustand or equivalent local state; persists to `localStorage`; syncs to backend via `PUT /runtime/settings`
 
 **File creates (backend):**
-- `api/routes/runtime_settings.py` — `GET /runtime/settings` and `PUT /runtime/settings`. PUT validates: model in {cosmos-2b, cosmos-8b}, inference_interval_ms in [100, 60000], resolution in a fixed allowlist, prompt_preset in the six AD-6 keys. On valid PUT, updates the live `InferenceLoop` instance.
+- `api/routes/runtime_settings.py` — `GET /runtime/settings` and `PUT /runtime/settings`. PUT validates: model in the AD-3 live selector list, inference_interval_ms in [100, 60000], resolution in a fixed allowlist, prompt_preset in the six AD-6 keys. On valid PUT, updates the live `InferenceLoop` instance.
 
 **File modifies:**
 - `web/app/<layout-or-router>` — wire settings panel into the existing layout (don't add a new screen; this is a panel inside the live view)
@@ -307,7 +311,7 @@ For local dev without a GPU (e.g., when iterating UI), the mock adapter + `--leg
 - All four commits merged to main, one PR each
 - CI green on main throughout (each commit lands with green CI)
 - Manual verification on RTX 5090: open the web UI, see live video at ~30 FPS, see VLM result overlay updating every ~1s, change inference interval in the settings panel and watch cadence change, switch model 2B→8B and see latency change, start a recording, stop it, summarize it via VSS, get a `RecordingSummary` back
-- README documents: WebRTC quick-start, three-model menu, live vs batch decision, recording + summarization flow
+- README documents: WebRTC quick-start, live model menu, live vs batch decision, recording + summarization flow
 - A short evidence artifact committed under `artifacts/` showing the end-to-end run (screenshot or short MP4 of the UI)
 
 After this brief is done, the repo has a real, working live VLM engine that competes credibly with `live-vlm-webui` on the live path *and* offers something they don't: structured traffic events, operator review, RTSP camera profiles, traffic-domain use case packs, and recorded-video summarization via VSS.

@@ -54,8 +54,8 @@ class PutBindingsRequest(BaseModel):
 
 
 class SpeedCalibrationIn(BaseModel):
-    gate_a: list[list[float]] = Field(default_factory=list)
-    gate_b: list[list[float]] = Field(default_factory=list)
+    gate_a: Any = Field(default_factory=dict)
+    gate_b: Any = Field(default_factory=dict)
     real_world_distance_m: float = Field(gt=0)
     homography: Any = None
 
