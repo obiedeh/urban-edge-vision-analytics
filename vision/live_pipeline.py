@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 import os
 import shutil
 import subprocess
 import time
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 import httpx
@@ -16,10 +19,19 @@ from vision.adapters import (
     MockDetectionAdapter,
     NvidiaCosmosAdapter,
     NvidiaEndpointConfig,
+    NvidiaNimAdapter,
     NvidiaVssAdapter,
+    OllamaAdapter,
+    VllmAdapter,
 )
 from vision.camera_profiles import CameraConnection, verify_camera_connection
+from vision.frame_slot import FrameSlot
+from vision.inference_loop import InferenceLoop
+from vision.prompt_parsers import DEFAULT_PROMPT_PRESET, PROMPT_PRESETS
+from vision.result_broadcaster import InferenceResult, ResultBroadcaster
 from vision.schemas import InferenceFrame
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -27,6 +39,7 @@ class LivePipelineSettings:
     width: int = 640
     height: int = 360
     sample_fps: float = 1.0
+    inference_interval_ms: int = 1000
     max_frames: int | None = None
     congestion_threshold: int = 10
     flow_window_size: int = 30
@@ -34,19 +47,37 @@ class LivePipelineSettings:
     frame_format: str = "raw"
 
 
-# Live runtime selector is locked to exactly three values per
-# docs/live-vlm-engine-brief.md AD-3:
+# Live runtime selector values. The original AD-3 menu was expanded by
+# operator request to include Cosmos 3 and quantized Gemma 4 targets:
 #   - cosmos-2b: vLLM serving nvidia/Cosmos-Reason2-2B (default)
 #   - cosmos-8b: vLLM serving nvidia/Cosmos-Reason2-8B (heavy tier)
+#   - cosmos-3:  NIM/vLLM serving Cosmos3-Nano reasoner
+#   - gemma-4:   Ollama serving quantized gemma4:e4b
+#   - gemma-4-vllm: vLLM serving google/gemma-4-E4B-it
+#   - gemma-4-26b-nvfp4: vLLM serving NVIDIA's quantized Gemma 4 26B A4B
 #   - vss:       NVIDIA VSS Blueprint endpoint (batch-only; not for live UI)
 #
 # MockDetectionAdapter remains the test default but is not selectable here.
-# OllamaAdapter / NvidiaNimAdapter classes stay importable for dev/test but
-# are intentionally not in this selector.
-_ALLOWED_LIVE_MODELS = ("cosmos-2b", "cosmos-8b", "vss")
+_ALLOWED_LIVE_MODELS = (
+    "cosmos-2b",
+    "cosmos-8b",
+    "cosmos-3",
+    "gemma-4",
+    "gemma-4-vllm",
+    "gemma-4-26b-nvfp4",
+    "vss",
+)
 _COSMOS_MODEL_MAP = {
     "cosmos-2b": "nvidia/Cosmos-Reason2-2B",
     "cosmos-8b": "nvidia/Cosmos-Reason2-8B",
+    "cosmos-3": "nvidia/cosmos3-nano-reasoner",
+}
+_GEMMA_OLLAMA_MODEL_MAP = {
+    "gemma-4": "gemma4:e4b",
+}
+_GEMMA_VLLM_MODEL_MAP = {
+    "gemma-4-vllm": "google/gemma-4-E4B-it",
+    "gemma-4-26b-nvfp4": "nvidia/Gemma-4-26B-A4B-NVFP4",
 }
 
 
@@ -56,14 +87,33 @@ def build_detection_adapter(
     api_key: str | None = None,
     model: str | None = None,
 ) -> DetectionAdapter:
-    """Build a DetectionAdapter for the locked three-model live menu.
-
-    Allowed: cosmos-2b, cosmos-8b, vss. Anything else raises ValueError.
-    """
+    """Build a DetectionAdapter for the supported live model menu."""
     normalized = adapter_name.strip().lower().replace("_", "-")
-    # Back-compat aliases for the three allowed values
+    # Back-compat aliases for the allowed values
     if normalized in {"cosmos", "nvidia-cosmos", "world-model"}:
         normalized = "cosmos-2b"
+    elif normalized in {
+        "cosmos3",
+        "cosmos3-nano",
+        "cosmos3-nano-reasoner",
+        "cosmos-3-nano",
+        "cosmos-3-reasoner",
+        "nvidia-cosmos3",
+    }:
+        normalized = "cosmos-3"
+    elif normalized in {"gemma4", "gemma4-e4b", "gemma-4-e4b"}:
+        normalized = "gemma-4"
+    elif normalized in {"gemma4-vllm", "gemma-4-base", "google-gemma4"}:
+        normalized = "gemma-4-vllm"
+    elif normalized in {
+        "gemma4-26b",
+        "gemma4-nvfp4",
+        "gemma4-quantized",
+        "gemma-4-26b",
+        "gemma-4-nvfp4",
+        "gemma-4-quantized",
+    }:
+        normalized = "gemma-4-26b-nvfp4"
     elif normalized in {"nvidia-vss"}:
         normalized = "vss"
 
@@ -76,8 +126,8 @@ def build_detection_adapter(
 
     api_key = api_key or os.getenv("NVIDIA_API_KEY")
 
-    if normalized in {"cosmos-2b", "cosmos-8b"}:
-        # vLLM serves both Cosmos sizes via OpenAI-compatible API
+    if normalized in _COSMOS_MODEL_MAP:
+        # vLLM serves Cosmos models via OpenAI-compatible API
         resolved_endpoint = (
             endpoint or os.getenv("VLLM_ENDPOINT") or "http://localhost:8000/v1"
         )
@@ -90,6 +140,24 @@ def build_detection_adapter(
             model=resolved_model,
         )
         return NvidiaCosmosAdapter(config)
+
+    if normalized in _GEMMA_OLLAMA_MODEL_MAP:
+        resolved_endpoint = (
+            endpoint or os.getenv("OLLAMA_ENDPOINT") or "http://localhost:11434/v1"
+        )
+        resolved_model = (
+            model or os.getenv("OLLAMA_MODEL") or _GEMMA_OLLAMA_MODEL_MAP[normalized]
+        )
+        return OllamaAdapter(endpoint=resolved_endpoint, model=resolved_model)
+
+    if normalized in _GEMMA_VLLM_MODEL_MAP:
+        resolved_endpoint = (
+            endpoint or os.getenv("VLLM_ENDPOINT") or "http://localhost:8000/v1"
+        )
+        resolved_model = (
+            model or os.getenv("VLLM_MODEL") or _GEMMA_VLLM_MODEL_MAP[normalized]
+        )
+        return VllmAdapter(endpoint=resolved_endpoint, model=resolved_model)
 
     # normalized == "vss"
     resolved_endpoint = endpoint or os.getenv("NVIDIA_VSS_ENDPOINT")
@@ -104,6 +172,35 @@ def build_detection_adapter(
         model=model or os.getenv("NVIDIA_VSS_MODEL"),
     )
     return NvidiaVssAdapter(config)
+
+
+def build_legacy_detection_adapter(
+    adapter_name: str,
+    endpoint: str | None = None,
+    api_key: str | None = None,
+    model: str | None = None,
+) -> DetectionAdapter:
+    """Build adapters kept only for the deprecated FFmpeg/snapshot pipeline."""
+    normalized = adapter_name.strip().lower().replace("_", "-")
+    if normalized == "mock":
+        return MockDetectionAdapter()
+    if normalized == "ollama":
+        return OllamaAdapter(endpoint=endpoint or os.getenv("OLLAMA_ENDPOINT"), model=model)
+    if normalized == "vllm":
+        return VllmAdapter(endpoint=endpoint or os.getenv("VLLM_ENDPOINT"), model=model)
+    if normalized == "nvidia-nim":
+        config = NvidiaEndpointConfig(
+            endpoint=endpoint or os.getenv("NVIDIA_VISION_ENDPOINT") or "",
+            api_key=api_key or os.getenv("NVIDIA_API_KEY"),
+            model=model or os.getenv("NVIDIA_VISION_MODEL"),
+        )
+        return NvidiaNimAdapter(config)
+    return build_detection_adapter(
+        adapter_name,
+        endpoint=endpoint,
+        api_key=api_key,
+        model=model,
+    )
 
 
 def build_ffmpeg_frame_command(
@@ -313,6 +410,147 @@ def frame_to_event_payload(
     }
 
 
+def result_to_event_payload(result: InferenceResult) -> dict:
+    if result.event is None:
+        return {
+            "camera_id": result.camera_id,
+            "event_type": EventType.scene_clear.value,
+            "severity": Severity.info.value,
+            "vehicle_count": result.vehicle_count,
+            "track_ids": [],
+            "confidence": 1.0,
+            "operator_review_recommended": False,
+            "inference_latency_ms": result.inference_latency_ms,
+            "vlm_summary": result.vlm_summary,
+            "vlm_reasoning": result.vlm_reasoning,
+            "vlm_model": result.model_id,
+            "metadata": {"frame_id": result.frame_id, "prompt_preset": result.prompt_preset},
+        }
+
+    event = result.event
+    return {
+        "camera_id": event.camera_id,
+        "event_type": event.event_type.value,
+        "severity": event.severity.value,
+        "vehicle_count": event.vehicle_count,
+        "track_ids": event.track_ids,
+        "confidence": event.confidence,
+        "operator_review_recommended": event.operator_review_recommended,
+        "inference_latency_ms": result.inference_latency_ms,
+        "vlm_summary": event.vlm_summary,
+        "vlm_reasoning": event.vlm_reasoning,
+        "vlm_model": event.vlm_model,
+        "metadata": {
+            **event.metadata,
+            "prompt_preset": result.prompt_preset,
+            "parse_ok": result.parse_ok,
+            "structured_vlm": result.metadata.get("structured", {}),
+        },
+    }
+
+
+async def run_dual_loop_pipeline(
+    connection: CameraConnection,
+    settings: LivePipelineSettings,
+    detector: DetectionAdapter | None = None,
+    synthetic: bool = False,
+    prompt_preset: str = DEFAULT_PROMPT_PRESET,
+    model_id: str = "mock",
+) -> int:
+    if not synthetic:
+        raise RuntimeError(
+            "RTSP bridge for the dual-loop live path is not implemented yet. "
+            "Use browser WebRTC ingress, synthetic mode, or --legacy-ffmpeg."
+        )
+
+    detector = detector or MockDetectionAdapter()
+    frame_slot = FrameSlot()
+    broadcaster = ResultBroadcaster()
+    inference_loop = InferenceLoop(
+        frame_slot,
+        detector,
+        broadcaster,
+        inference_interval_ms=settings.inference_interval_ms,
+        model_id=model_id,
+        prompt_preset=prompt_preset,
+        target_resolution=f"{settings.width}x{settings.height}",
+    )
+    frame_source = iter_synthetic_frames(connection.camera_id, settings)
+    events_url = f"{settings.api_url.rstrip('/')}/events"
+    event_count = 0
+
+    await inference_loop.start()
+    try:
+        async with broadcaster.subscribe() as queue:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                for frame in frame_source:
+                    frame_slot.put_frame(frame)
+                    event_count += await _drain_result_queue(queue, client, events_url)
+                    await asyncio.sleep(0)
+
+                await asyncio.sleep(settings.inference_interval_ms / 1000)
+                event_count += await _drain_result_queue(queue, client, events_url)
+    finally:
+        await inference_loop.stop()
+
+    return event_count
+
+
+async def collect_dual_loop_results(
+    frames: Iterable[InferenceFrame],
+    detector: DetectionAdapter | None = None,
+    *,
+    inference_interval_ms: int = 10,
+    prompt_preset: str = DEFAULT_PROMPT_PRESET,
+    model_id: str = "mock",
+) -> list[InferenceResult]:
+    frame_slot = FrameSlot()
+    broadcaster = ResultBroadcaster()
+    inference_loop = InferenceLoop(
+        frame_slot,
+        detector or MockDetectionAdapter(),
+        broadcaster,
+        inference_interval_ms=inference_interval_ms,
+        model_id=model_id,
+        prompt_preset=prompt_preset,
+    )
+    results: list[InferenceResult] = []
+    await inference_loop.start()
+    try:
+        async with broadcaster.subscribe() as queue:
+            for frame in frames:
+                frame_slot.put_frame(frame)
+                result = await asyncio.wait_for(
+                    queue.get(),
+                    timeout=max(1.0, inference_interval_ms / 1000 * 4),
+                )
+                results.append(result)
+    finally:
+        await inference_loop.stop()
+    return results
+
+
+async def _drain_result_queue(
+    queue: asyncio.Queue[InferenceResult],
+    client: httpx.AsyncClient,
+    events_url: str,
+) -> int:
+    posted = 0
+    while not queue.empty():
+        result = queue.get_nowait()
+        response = await client.post(events_url, json=result_to_event_payload(result))
+        response.raise_for_status()
+        posted += 1
+        print(
+            "posted_live_result "
+            f"camera_id={result.camera_id} "
+            f"vehicle_count={result.vehicle_count} "
+            f"prompt_preset={result.prompt_preset}",
+            flush=True,
+        )
+    return posted
+
+
 def iter_synthetic_frames(
     camera_id: str,
     settings: LivePipelineSettings,
@@ -442,6 +680,7 @@ def main() -> None:
     parser.add_argument("--width", type=int, default=640)
     parser.add_argument("--height", type=int, default=360)
     parser.add_argument("--sample-fps", type=float, default=1.0)
+    parser.add_argument("--inference-interval-ms", type=int, default=1000)
     parser.add_argument(
         "--frames", type=int, default=0,
         help="Max frames to process (0 = run forever).",
@@ -451,10 +690,40 @@ def main() -> None:
     parser.add_argument(
         "--detector",
         default=os.getenv("DETECTION_ADAPTER", "mock"),
-        choices=["mock", "ollama", "vllm", "nvidia-nim", "nvidia-vss", "nvidia-cosmos"],
+        choices=[
+            "mock",
+            "cosmos",
+            "cosmos-2b",
+            "cosmos-8b",
+            "cosmos-3",
+            "cosmos3-nano",
+            "cosmos3",
+            "gemma-4",
+            "gemma-4-e4b",
+            "gemma-4-vllm",
+            "gemma-4-26b-nvfp4",
+            "gemma-4-nvfp4",
+            "gemma4",
+            "vss",
+            "nvidia-cosmos",
+            "nvidia-vss",
+            "ollama",
+            "vllm",
+            "nvidia-nim",
+        ],
     )
     parser.add_argument("--detector-endpoint", default=os.getenv("NVIDIA_VISION_ENDPOINT"))
     parser.add_argument("--detector-model", default=os.getenv("NVIDIA_VISION_MODEL"))
+    parser.add_argument(
+        "--prompt-preset",
+        default=DEFAULT_PROMPT_PRESET,
+        choices=sorted(PROMPT_PRESETS.keys()),
+    )
+    parser.add_argument(
+        "--legacy-ffmpeg",
+        action="store_true",
+        help="Use the deprecated FFmpeg-pipe live reader for RTSP/snapshot demos.",
+    )
     parser.add_argument(
         "--synthetic", action="store_true",
         help="Generate synthetic frames (no camera / ffmpeg required). "
@@ -494,6 +763,7 @@ def main() -> None:
         width=args.width,
         height=args.height,
         sample_fps=args.sample_fps,
+        inference_interval_ms=args.inference_interval_ms,
         max_frames=max_frames,
         congestion_threshold=args.congestion_threshold,
         flow_window_size=args.flow_window_size,
@@ -511,12 +781,41 @@ def main() -> None:
     if not use_synthetic:
         print(f"feed_url={connection.masked_feed_url}", flush=True)
 
-    detector = build_detection_adapter(
-        args.detector,
-        endpoint=args.detector_endpoint,
-        model=args.detector_model,
-    )
-    count = run_live_pipeline(connection, settings, detector=detector, synthetic=use_synthetic)
+    if args.legacy_ffmpeg:
+        logger.warning(
+            "--legacy-ffmpeg uses the deprecated FFmpeg-pipe reader. "
+            "Browser WebRTC ingress is the live path for this release."
+        )
+        detector = build_legacy_detection_adapter(
+            args.detector,
+            endpoint=args.detector_endpoint,
+            model=args.detector_model,
+        )
+        count = run_live_pipeline(
+            connection,
+            settings,
+            detector=detector,
+            synthetic=use_synthetic,
+        )
+    else:
+        if args.detector == "mock":
+            detector = MockDetectionAdapter()
+        else:
+            detector = build_detection_adapter(
+                args.detector,
+                endpoint=args.detector_endpoint,
+                model=args.detector_model,
+            )
+        count = asyncio.run(
+            run_dual_loop_pipeline(
+                connection,
+                settings,
+                detector=detector,
+                synthetic=use_synthetic,
+                prompt_preset=args.prompt_preset,
+                model_id=args.detector,
+            )
+        )
     print(f"processed_events={count}", flush=True)
 
 

@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 
 from api.pipeline_manager import PipelineManager
+from api.vllm_manager import VllmServerManager
 from events.lifecycle import EventStore
 from events.schemas import EventType, IncidentStatus, IntersectionIncident, Severity, TrafficEvent
 from store.config_store import ConfigStore
@@ -21,6 +22,11 @@ from telemetry.metrics import InferenceMetrics
 from telemetry.runtime import RuntimeSnapshot
 from transports.snapshot import SnapshotTransport
 from vision.camera_profiles import CameraConfigError, verify_camera_connection
+from vision.frame_slot import FrameSlot
+from vision.inference_loop import InferenceLoop
+from vision.live_pipeline import build_detection_adapter
+from vision.result_broadcaster import ResultBroadcaster
+from vision.webrtc.signaling import close_peer_connections
 
 logger = logging.getLogger(__name__)
 
@@ -32,16 +38,32 @@ _known_cameras: set[str] = set()
 _config_store = ConfigStore(os.getenv("STORE_PATH", "store/urbanvision.sqlite"))
 _snapshot_transport = SnapshotTransport()
 _pipeline_manager = PipelineManager()
+_vllm_manager = VllmServerManager()
+_frame_slot = FrameSlot()
+_result_broadcaster = ResultBroadcaster()
+_webrtc_sessions: dict[str, object] = {}
+_live_inference_loop: InferenceLoop | None = None
 
 _CAMERA_CONFIG_PATH = Path("configs/camera.local.json")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _live_inference_loop
+
     _runtime.started_at = time.time()
 
     # Initialise SQLite schema
     await _config_store.init()
+
+    live_model_id = os.getenv("LIVE_MODEL_ID", "cosmos-2b")
+    _live_inference_loop = InferenceLoop(
+        _frame_slot,
+        build_detection_adapter(live_model_id),
+        _result_broadcaster,
+        model_id=live_model_id,
+    )
+    await _live_inference_loop.start()
 
     adapter = os.getenv("DETECTION_ADAPTER", "mock")
 
@@ -111,7 +133,12 @@ async def lifespan(app: FastAPI):
     yield
 
     # Graceful shutdown
+    if _live_inference_loop is not None:
+        await _live_inference_loop.stop()
+        _live_inference_loop = None
+    await close_peer_connections(_webrtc_sessions)
     _pipeline_manager.stop()
+    _vllm_manager.stop()
 
 
 app = FastAPI(
@@ -124,12 +151,23 @@ app = FastAPI(
 # ── Wire dependency overrides ─────────────────────────────────────────────────
 
 from api.routes import cameras as _cam_routes  # noqa: E402
+from api.routes import live_results as _live_results_routes  # noqa: E402
+from api.routes import local_inference as _local_inference_routes  # noqa: E402
 from api.routes import metrics_extra as _metrics_routes  # noqa: E402
 from api.routes import snapshot as _snap_routes  # noqa: E402
+from vision.webrtc import signaling as _webrtc_routes  # noqa: E402
 
 app.dependency_overrides[_cam_routes._get_store] = lambda: _config_store
 app.dependency_overrides[_cam_routes._get_pipeline] = lambda: _pipeline_manager
+app.dependency_overrides[_local_inference_routes._get_vllm_manager] = (
+    lambda: _vllm_manager
+)
 app.dependency_overrides[_snap_routes._get_transport] = lambda: _snapshot_transport
+app.dependency_overrides[_live_results_routes._get_broadcaster] = (
+    lambda: _result_broadcaster
+)
+app.dependency_overrides[_webrtc_routes._get_frame_slot] = lambda: _frame_slot
+app.dependency_overrides[_webrtc_routes._get_sessions] = lambda: _webrtc_sessions
 app.dependency_overrides[_metrics_routes._get_inference_metrics] = (
     lambda: _inference_metrics
 )
@@ -141,12 +179,14 @@ app.dependency_overrides[_metrics_routes._get_adapter_name] = lambda: os.getenv(
 
 from api.routes.artifacts import router as artifacts_router  # noqa: E402
 from api.routes.cameras import router as cameras_router  # noqa: E402
+from api.routes.live_results import router as live_results_router  # noqa: E402
 from api.routes.local_inference import router as local_inference_router  # noqa: E402
 from api.routes.metrics_extra import router as metrics_extra_router  # noqa: E402
 from api.routes.pipeline import _get_manager as _pipeline_get_manager  # noqa: E402
 from api.routes.pipeline import router as pipeline_router  # noqa: E402
 from api.routes.snapshot import router as snapshot_router  # noqa: E402
 from api.routes.use_cases import router as use_cases_router  # noqa: E402
+from vision.webrtc.signaling import router as webrtc_router  # noqa: E402
 
 app.dependency_overrides[_pipeline_get_manager] = lambda: _pipeline_manager
 
@@ -157,6 +197,8 @@ app.include_router(metrics_extra_router)
 app.include_router(artifacts_router)
 app.include_router(pipeline_router)
 app.include_router(local_inference_router)
+app.include_router(live_results_router)
+app.include_router(webrtc_router)
 
 # ── Existing routes ───────────────────────────────────────────────────────────
 
@@ -185,6 +227,9 @@ class EventIngestRequest(BaseModel):
     confidence: float = 1.0
     operator_review_recommended: bool = False
     inference_latency_ms: float | None = None
+    vlm_summary: str | None = None
+    vlm_reasoning: str | None = None
+    vlm_model: str | None = None
     metadata: dict = Field(default_factory=dict)
 
     @model_validator(mode="after")
@@ -206,6 +251,9 @@ def ingest_event(req: EventIngestRequest) -> TrafficEvent:
         track_ids=req.track_ids,
         confidence=req.confidence,
         operator_review_recommended=req.operator_review_recommended,
+        vlm_summary=req.vlm_summary,
+        vlm_reasoning=req.vlm_reasoning,
+        vlm_model=req.vlm_model,
         metadata=req.metadata,
     )
     _store.add_event(event)

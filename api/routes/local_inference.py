@@ -10,20 +10,35 @@ No credentials are required for local servers.
 """
 from __future__ import annotations
 
+import subprocess
+
 import httpx
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+
+from api.vllm_manager import VllmServerManager, parse_local_vllm_endpoint
 
 router = APIRouter(prefix="/inference", tags=["local-inference"])
 
 OLLAMA_BASE = "http://localhost:11434"
-VLLM_BASE   = "http://localhost:8001"   # default — user can override via ?endpoint=
+VLLM_BASE   = "http://localhost:8000"   # default — user can override via ?endpoint=
+
+
+def _get_vllm_manager() -> VllmServerManager:
+    """Overridden in api/main.py after the manager is created."""
+    raise RuntimeError("VllmServerManager not initialised")  # pragma: no cover
+
+
+class VllmStartRequest(BaseModel):
+    model: str = Field(min_length=1)
+    endpoint: str = VLLM_BASE
 
 # Ollama model families that support vision (image input)
 _OLLAMA_VISION_FAMILIES = {
     "llava", "moondream", "llava-phi3", "minicpm", "bakllava",
     "llava-llama3", "llama3.2-vision", "granite3", "qwen2-vl",
     "gemma3", "gemma4",                   # Google Gemma 3/4 multimodal
-    "cosmos", "cosmos-reason2",           # NVIDIA Cosmos world-model family
+    "cosmos", "cosmos-reason2", "cosmos3", # NVIDIA Cosmos world-model family
     "phi3-vision", "phi4-vision",         # Microsoft Phi vision
     "internvl", "internvl2",              # InternVL series
     "cogvlm", "cogvlm2",
@@ -32,7 +47,7 @@ _OLLAMA_VISION_FAMILIES = {
 # Keywords in model names that indicate vision capability
 _VISION_KEYWORDS = {
     "llava", "vision", "moondream", "vl", "visual", "minicpm",
-    "cosmos", "cosmos-reason",            # NVIDIA Cosmos
+    "cosmos", "cosmos-reason", "cosmos3", # NVIDIA Cosmos
     "gemma3", "gemma4",                   # Gemma multimodal
     "internvl", "cogvlm",
     "phi3v", "phi4v",
@@ -68,7 +83,7 @@ MODEL_CATALOG: list[dict] = [
     },
     {
         "name": "nvidia/cosmos-reason2-2b",
-        "hf_id": "nvidia/cosmos-reason2-2b",
+        "hf_id": "nvidia/Cosmos-Reason2-2B",
         "label": "Cosmos Reason 2 (2B) via vLLM",
         "family": "cosmos-reason2",
         "vision": True,
@@ -76,9 +91,51 @@ MODEL_CATALOG: list[dict] = [
         "vram_gb": 5,
         "tier": "mid",
         "backend": "vllm",
-        "description": "HuggingFace path — serve with vLLM on RTX 5090",
-        "pull_cmd": "vllm serve nvidia/cosmos-reason2-2b --port 8000",
-        "tags": ["nvidia", "traffic", "world-model"],
+        "description": "Gated Hugging Face repo; use after NVIDIA/HF access is granted",
+        "pull_cmd": "vllm serve nvidia/Cosmos-Reason2-2B --port 8000",
+        "gated": True,
+        "access_note": "Requires Hugging Face access to nvidia/Cosmos-Reason2-2B.",
+        "tags": ["nvidia", "traffic", "world-model", "gated"],
+    },
+    {
+        "name": "nvidia/cosmos3-nano-reasoner",
+        "hf_id": "nvidia/Cosmos3-Nano",
+        "label": "Cosmos 3 Nano Reasoner (8B)",
+        "family": "cosmos3",
+        "vision": True,
+        "params_b": 8.0,
+        "vram_gb": 18,
+        "ram_gb": 40,
+        "tier": "max",
+        "backend": "vllm",
+        "description": "Cosmos 3 Nano via vLLM-Omni; needs high system RAM",
+        "pull_cmd": (
+            "NIM_MODEL_SIZE=nano vllm-omni serve nvidia/Cosmos3-Nano "
+            "--omni --model-class-name Cosmos3OmniDiffusersPipeline "
+            "--enable-layerwise-offload --vae-use-slicing --vae-use-tiling "
+            "--disable-multithread-weight-load "
+            "--diffusion-attention-backend TORCH_SDPA --no-guardrails "
+            "--log-file /tmp/urban-edge-vllm-cosmos3.log --init-timeout 1800 --port 8000"
+        ),
+        "launch_bin": "vllm-omni",
+        "launch_args": [
+            "--omni",
+            "--model-class-name",
+            "Cosmos3OmniDiffusersPipeline",
+            "--enable-layerwise-offload",
+            "--vae-use-slicing",
+            "--vae-use-tiling",
+            "--disable-multithread-weight-load",
+            "--diffusion-attention-backend",
+            "TORCH_SDPA",
+            "--no-guardrails",
+            "--log-file",
+            "/tmp/urban-edge-vllm-cosmos3.log",
+            "--init-timeout",
+            "1800",
+        ],
+        "launch_env": {"NIM_MODEL_SIZE": "nano"},
+        "tags": ["nvidia", "traffic", "world-model", "cosmos3"],
     },
     # ── Google Gemma ──────────────────────────────────────────────────────────
     {
@@ -124,32 +181,115 @@ MODEL_CATALOG: list[dict] = [
         "tags": ["google", "vision", "quantized", "high-param"],
     },
     {
-        "name": "gemma4:4b-instruct-vision",
-        "hf_id": "google/gemma-4-4b-it",
-        "label": "Gemma 4 Vision (4B)",
+        "name": "gemma4:e2b",
+        "hf_id": "google/gemma-4-E2B-it",
+        "label": "Gemma 4 Edge (E2B)",
         "family": "gemma4",
         "vision": True,
-        "params_b": 4.0,
-        "vram_gb": 5,
-        "tier": "mid",
+        "params_b": 2.3,
+        "vram_gb": 8,
+        "tier": "high",
         "backend": "ollama",
-        "description": "Latest Gemma 4 with vision, fast on any RTX GPU",
-        "pull_cmd": "ollama pull gemma4:4b-instruct-vision",
-        "tags": ["google", "vision", "latest"],
+        "description": "Smallest Gemma 4 multimodal Ollama tag; safest quantized choice",
+        "pull_cmd": "ollama pull gemma4:e2b",
+        "tags": ["google", "vision", "quantized", "edge"],
     },
     {
-        "name": "gemma4:27b-instruct-vision-q4_K_M",
-        "hf_id": "google/gemma-4-27b-it",
-        "label": "Gemma 4 Vision (27B Q4)",
+        "name": "gemma4:e4b",
+        "hf_id": "google/gemma-4-E4B-it",
+        "label": "Gemma 4 Edge (E4B)",
         "family": "gemma4",
         "vision": True,
-        "params_b": 27.0,
-        "vram_gb": 15,
+        "params_b": 4.5,
+        "vram_gb": 12,
+        "tier": "high",
+        "backend": "ollama",
+        "description": "Recommended quantized Gemma 4 starting point for live traffic frames",
+        "pull_cmd": "ollama pull gemma4:e4b",
+        "tags": ["google", "vision", "quantized", "recommended"],
+    },
+    {
+        "name": "google/gemma-4-E4B-it",
+        "hf_id": "google/gemma-4-E4B-it",
+        "label": "Gemma 4 Edge (E4B) via vLLM",
+        "family": "gemma4",
+        "vision": True,
+        "params_b": 4.5,
+        "vram_gb": 14,
+        "tier": "high",
+        "backend": "vllm",
+        "description": "Official Gemma 4 E4B checkpoint; smallest practical vLLM Gemma 4 target",
+        "pull_cmd": "vllm serve google/gemma-4-E4B-it --port 8000 --trust-remote-code",
+        "launch_args": ["--trust-remote-code"],
+        "tags": ["google", "vision", "recommended"],
+    },
+    {
+        "name": "gemma4:12b",
+        "hf_id": "google/gemma-4-12B-it",
+        "label": "Gemma 4 Unified (12B)",
+        "family": "gemma4",
+        "vision": True,
+        "params_b": 12.0,
+        "vram_gb": 14,
+        "tier": "high",
+        "backend": "ollama",
+        "description": "Stronger quantized Gemma 4 option that still fits comfortably on RTX 5090",
+        "pull_cmd": "ollama pull gemma4:12b",
+        "tags": ["google", "vision", "quantized"],
+    },
+    {
+        "name": "gemma4:26b",
+        "hf_id": "google/gemma-4-26B-A4B-it",
+        "label": "Gemma 4 MoE (26B A4B)",
+        "family": "gemma4",
+        "vision": True,
+        "params_b": 25.2,
+        "vram_gb": 24,
         "tier": "max",
         "backend": "ollama",
-        "description": "Gemma 4 full-size quantized — RTX 5090 / Jetson Thor AGX",
-        "pull_cmd": "ollama pull gemma4:27b-instruct-vision-q4_K_M",
+        "description": "Large quantized Gemma 4 option; stop other GPU workloads before live use",
+        "pull_cmd": "ollama pull gemma4:26b",
+        "tags": ["google", "vision", "quantized", "high-param"],
+    },
+    {
+        "name": "gemma4:31b",
+        "hf_id": "google/gemma-4-31B-it",
+        "label": "Gemma 4 Dense (31B)",
+        "family": "gemma4",
+        "vision": True,
+        "params_b": 30.7,
+        "vram_gb": 28,
+        "tier": "max",
+        "backend": "ollama",
+        "description": "Largest quantized Gemma 4 Ollama tag; dedicate most of the GPU to it",
+        "pull_cmd": "ollama pull gemma4:31b",
         "tags": ["google", "vision", "quantized", "high-param", "latest"],
+    },
+    {
+        "name": "nvidia/Gemma-4-26B-A4B-NVFP4",
+        "hf_id": "nvidia/Gemma-4-26B-A4B-NVFP4",
+        "label": "Gemma 4 MoE (26B A4B NVFP4)",
+        "family": "gemma4",
+        "vision": True,
+        "params_b": 25.2,
+        "vram_gb": 20,
+        "tier": "max",
+        "backend": "vllm",
+        "description": "NVIDIA-optimized quantized Gemma 4 checkpoint for Blackwell vLLM",
+        "pull_cmd": (
+            "vllm serve nvidia/Gemma-4-26B-A4B-NVFP4 --trust-remote-code "
+            "--tool-call-parser gemma4 --reasoning-parser gemma4 "
+            "--enable-auto-tool-choice"
+        ),
+        "launch_args": [
+            "--trust-remote-code",
+            "--tool-call-parser",
+            "gemma4",
+            "--reasoning-parser",
+            "gemma4",
+            "--enable-auto-tool-choice",
+        ],
+        "tags": ["google", "nvidia", "vision", "quantized", "nvfp4"],
     },
     # ── LLaVA variants ────────────────────────────────────────────────────────
     {
@@ -339,14 +479,127 @@ async def ollama_pull_check(body: dict) -> dict:
 
 # ── vLLM ────────────────────────────────────────────────────────────────────
 
+
+def _resolve_vllm_catalog_model(
+    model: str,
+) -> tuple[str, list[str], dict[str, str], str | None]:
+    """Map a UI catalog alias to the Hugging Face model and launch options."""
+    entry = _find_vllm_catalog_entry(model)
+    if entry:
+        return (
+            entry["hf_id"],
+            list(entry.get("launch_args", [])),
+            dict(entry.get("launch_env", {})),
+            entry.get("launch_bin"),
+        )
+    return model.strip(), [], {}, None
+
+
+def _find_vllm_catalog_entry(model: str) -> dict | None:
+    """Return the vLLM catalog entry selected by alias or Hugging Face id."""
+    selected = model.strip()
+    for entry in MODEL_CATALOG:
+        if entry.get("backend") != "vllm":
+            continue
+        if selected not in {entry["name"], entry["hf_id"]}:
+            continue
+        return entry
+    return None
+
+
+def _free_gpu_memory_gb() -> float | None:
+    """Return max free VRAM across local NVIDIA GPUs, if nvidia-smi is available."""
+    try:
+        result = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=memory.free",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            check=True,
+            text=True,
+            timeout=2,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return None
+
+    free_mib: list[float] = []
+    for line in result.stdout.splitlines():
+        raw = line.strip().split(",", maxsplit=1)[0].strip()
+        if not raw:
+            continue
+        try:
+            free_mib.append(float(raw))
+        except ValueError:
+            continue
+    if not free_mib:
+        return None
+    return max(free_mib) / 1024
+
+
+def _available_system_memory_gb() -> float | None:
+    """Return currently available system RAM from /proc/meminfo."""
+    try:
+        with open("/proc/meminfo") as meminfo:
+            for line in meminfo:
+                if not line.startswith("MemAvailable:"):
+                    continue
+                parts = line.split()
+                if len(parts) >= 2:
+                    return float(parts[1]) / (1024 * 1024)
+    except (OSError, ValueError):
+        return None
+    return None
+
+
+def _ensure_vllm_memory_available(entry: dict | None) -> None:
+    if not entry:
+        return
+    model = entry.get("hf_id") or entry.get("name") or "selected vLLM model"
+    required_gb = float(entry.get("vram_gb") or 0)
+    if required_gb > 0:
+        free_gb = _free_gpu_memory_gb()
+        if free_gb is not None and free_gb < required_gb:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Not enough free GPU memory to start {model}. "
+                    f"Catalog estimate is {required_gb:.1f} GiB; "
+                    f"currently free is {free_gb:.1f} GiB. "
+                    "Stop Ollama/Isaac/CUDA workloads or choose a smaller model."
+                ),
+            )
+    required_ram_gb = float(entry.get("ram_gb") or 0)
+    if required_ram_gb <= 0:
+        return
+    available_ram_gb = _available_system_memory_gb()
+    if available_ram_gb is None or available_ram_gb >= required_ram_gb:
+        return
+    raise HTTPException(
+        status_code=409,
+        detail=(
+            f"Not enough available system RAM to start {model}. "
+            f"Catalog estimate is {required_ram_gb:.1f} GiB; "
+            f"currently available is {available_ram_gb:.1f} GiB. "
+            "Close memory-heavy jobs or use a smaller/quantized model."
+        ),
+    )
+
+
 @router.get("/vllm/status")
-async def vllm_status(endpoint: str | None = None) -> dict:
+async def vllm_status(
+    endpoint: str | None = None,
+    manager: VllmServerManager = Depends(_get_vllm_manager),
+) -> dict:
     """Check if a vLLM server is running.
 
     Pass ?endpoint=http://localhost:8001 (or http://jetson-thor:8001) to probe
     a server on a non-default port or remote host.
     """
     base = _base_url(endpoint, VLLM_BASE)
+    managed_status = manager.status()
+    managed_for_endpoint = managed_status.get("endpoint") == f"{base}/v1"
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
             r = await client.get(f"{base}/v1/models")
@@ -356,10 +609,74 @@ async def vllm_status(endpoint: str | None = None) -> dict:
                     "running": True,
                     "endpoint": f"{base}/v1",
                     "model_count": len(models),
+                    "managed": managed_for_endpoint,
+                    "managed_state": (
+                        managed_status.get("state") if managed_for_endpoint else None
+                    ),
+                    "managed_model": (
+                        managed_status.get("model") if managed_for_endpoint else None
+                    ),
+                    "managed_pid": (
+                        managed_status.get("pid") if managed_for_endpoint else None
+                    ),
+                    "managed_log_tail": (
+                        managed_status.get("log_tail", []) if managed_for_endpoint else []
+                    ),
                 }
     except Exception:
         pass
-    return {"running": False, "endpoint": f"{base}/v1", "model_count": 0}
+    return {
+        "running": False,
+        "endpoint": f"{base}/v1",
+        "model_count": 0,
+        "managed": managed_for_endpoint,
+        "managed_state": managed_status.get("state") if managed_for_endpoint else None,
+        "managed_model": managed_status.get("model") if managed_for_endpoint else None,
+        "managed_pid": managed_status.get("pid") if managed_for_endpoint else None,
+        "managed_log_tail": (
+            managed_status.get("log_tail", []) if managed_for_endpoint else []
+        ),
+    }
+
+
+@router.post("/vllm/start")
+async def vllm_start(
+    req: VllmStartRequest,
+    manager: VllmServerManager = Depends(_get_vllm_manager),
+) -> dict:
+    """Start an app-managed local vLLM process."""
+    try:
+        selected_endpoint = parse_local_vllm_endpoint(req.endpoint)
+        entry = _find_vllm_catalog_entry(req.model)
+        model, extra_args, extra_env, executable = _resolve_vllm_catalog_model(req.model)
+        current = manager.status()
+        already_loading = (
+            current.get("state") == "starting"
+            and current.get("model") == model
+            and current.get("endpoint") == selected_endpoint.api_url
+        )
+        if not already_loading:
+            _ensure_vllm_memory_available(entry)
+        status = manager.start(
+            model=model,
+            endpoint=req.endpoint,
+            extra_args=extra_args,
+            extra_env=extra_env,
+            executable=executable,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"managed": True, **status}
+
+
+@router.post("/vllm/stop")
+async def vllm_stop(
+    manager: VllmServerManager = Depends(_get_vllm_manager),
+) -> dict:
+    """Stop the app-managed vLLM process, if one exists."""
+    return {"managed": True, **manager.stop()}
 
 
 @router.get("/vllm/models")
@@ -422,10 +739,11 @@ async def model_catalog() -> dict:
     entries = []
     for m in MODEL_CATALOG:
         name = m["name"]
+        hf_id = m.get("hf_id")
         backend = m["backend"]
         is_installed = (
             (backend == "ollama" and name in installed)
-            or (backend == "vllm" and name in vllm_loaded)
+            or (backend == "vllm" and (name in vllm_loaded or hf_id in vllm_loaded))
         )
         entries.append({**m, "installed": is_installed})
 

@@ -17,7 +17,7 @@ from .schemas import BoundingBox, InferenceFrame, VehicleClass, VehicleDetection
 
 class DetectionAdapter(ABC):
     @abstractmethod
-    def infer(self, frame: InferenceFrame) -> InferenceFrame:
+    def infer(self, frame: InferenceFrame, prompt: str = "") -> InferenceFrame:
         ...
 
 
@@ -27,7 +27,7 @@ class MockDetectionAdapter(DetectionAdapter):
     def __init__(self, seed: int = 42) -> None:
         self._rng = random.Random(seed)
 
-    def infer(self, frame: InferenceFrame) -> InferenceFrame:
+    def infer(self, frame: InferenceFrame, prompt: str = "") -> InferenceFrame:
         start = time.perf_counter()
         n = self._rng.randint(0, 4)
         detections = [
@@ -48,8 +48,39 @@ class MockDetectionAdapter(DetectionAdapter):
         ]
         latency_ms = (time.perf_counter() - start) * 1000
         return frame.model_copy(
-            update={"detections": detections, "inference_latency_ms": latency_ms}
+            update={
+                "detections": detections,
+                "inference_latency_ms": latency_ms,
+                "metadata": {
+                    **frame.metadata,
+                    "vlm_response": _mock_vlm_response(prompt, len(detections)),
+                    "vlm_model": "mock",
+                },
+            }
         )
+
+
+def _mock_vlm_response(prompt: str, vehicle_count: int) -> str:
+    lowered = prompt.lower()
+    if "count the vehicles" in lowered:
+        return (
+            f"count={vehicle_count} | "
+            f"vehicle_types=car:{vehicle_count},truck:0,motorcycle:0 | "
+            "confidence=high"
+        )
+    if "assess traffic congestion" in lowered:
+        status = "moderate" if vehicle_count >= 3 else "clear"
+        return (
+            f"status={status} | "
+            f"reasoning={vehicle_count} vehicles visible in the sampled frame"
+        )
+    if "incident" in lowered or "collision" in lowered:
+        return "status=normal"
+    if "against the marked traffic direction" in lowered:
+        return "status=no | description=No wrong-way movement is visible"
+    if "correct lanes" in lowered:
+        return "status=compliant | description=Visible vehicles appear lane compliant"
+    return f"Synthetic intersection frame with {vehicle_count} visible vehicles"
 
 
 @dataclass(frozen=True)
@@ -79,10 +110,11 @@ class NvidiaHttpAdapter(DetectionAdapter):
             headers["Authorization"] = f"Bearer {self.config.api_key}"
         return headers
 
-    def _payload(self, frame: InferenceFrame) -> dict[str, Any]:
+    def _payload(self, frame: InferenceFrame, prompt: str = "") -> dict[str, Any]:
         return {
             "provider": self.provider,
             "model": self.config.model,
+            "prompt": prompt,
             "frame": {
                 "frame_id": frame.frame_id,
                 "camera_id": frame.camera_id,
@@ -128,12 +160,12 @@ class NvidiaHttpAdapter(DetectionAdapter):
             update={"detections": detections, "inference_latency_ms": latency_ms}
         )
 
-    def infer(self, frame: InferenceFrame) -> InferenceFrame:
+    def infer(self, frame: InferenceFrame, prompt: str = "") -> InferenceFrame:
         start = time.perf_counter()
         response = httpx.post(
             self.config.endpoint,
             headers=self._headers(),
-            json=self._payload(frame),
+            json=self._payload(frame, prompt),
             timeout=self.config.timeout_s,
         )
         response.raise_for_status()
@@ -166,12 +198,12 @@ class NvidiaCosmosAdapter(NvidiaHttpAdapter):
             return [{"type": "video_url", "video_url": {"url": video_url}}]
         return []
 
-    def _payload(self, frame: InferenceFrame) -> dict[str, Any]:
+    def _payload(self, frame: InferenceFrame, prompt: str = "") -> dict[str, Any]:
         content = self._media_content(frame)
         content.append(
             {
                 "type": "text",
-                "text": (
+                "text": prompt or (
                     "Analyze this live smart-intersection camera frame or stream for "
                     "urban edge vision analytics. Return only JSON in the <answer> block "
                     "using this schema: "
@@ -200,18 +232,28 @@ class NvidiaCosmosAdapter(NvidiaHttpAdapter):
             "stream": False,
         }
 
-    def infer(self, frame: InferenceFrame) -> InferenceFrame:
+    def infer(self, frame: InferenceFrame, prompt: str = "") -> InferenceFrame:
         start = time.perf_counter()
         response = httpx.post(
             f"{self.config.endpoint.rstrip('/')}/chat/completions",
             headers=self._headers(),
-            json=self._payload(frame),
+            json=self._payload(frame, prompt),
             timeout=self.config.timeout_s,
         )
         response.raise_for_status()
         latency_ms = (time.perf_counter() - start) * 1000
-        parsed = _parse_cosmos_response(response.json())
-        return self._parse_response(frame, parsed, latency_ms)
+        raw = response.json()
+        parsed = _parse_cosmos_response(raw)
+        inferred = self._parse_response(frame, parsed, latency_ms)
+        return inferred.model_copy(
+            update={
+                "metadata": {
+                    **inferred.metadata,
+                    "vlm_response": _extract_assistant_text(raw),
+                    "vlm_model": self.config.model or "nvidia/Cosmos-Reason2-2B",
+                }
+            }
+        )
 
 
 # ── Local vision adapters (Ollama / vLLM) ────────────────────────────────────
@@ -259,7 +301,7 @@ class LocalVisionAdapter(DetectionAdapter):
         self.model = model or self.default_model
         self._timeout = 60.0  # vision inference can be slow on CPU
 
-    def _build_payload(self, frame: InferenceFrame) -> dict[str, Any]:
+    def _build_payload(self, frame: InferenceFrame, prompt: str = "") -> dict[str, Any]:
         content: list[dict[str, Any]] = []
         if frame.frame_bytes:
             b64 = base64.b64encode(frame.frame_bytes).decode("ascii")
@@ -267,7 +309,7 @@ class LocalVisionAdapter(DetectionAdapter):
                 "type": "image_url",
                 "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
             })
-        content.append({"type": "text", "text": _VISION_PROMPT})
+        content.append({"type": "text", "text": prompt or _VISION_PROMPT})
         return {
             "model": self.model,
             "messages": [{"role": "user", "content": content}],
@@ -276,22 +318,34 @@ class LocalVisionAdapter(DetectionAdapter):
             "stream": False,
         }
 
-    def infer(self, frame: InferenceFrame) -> InferenceFrame:
+    def infer(self, frame: InferenceFrame, prompt: str = "") -> InferenceFrame:
         start = time.perf_counter()
         try:
             resp = httpx.post(
                 f"{self.endpoint}/chat/completions",
                 headers={"Content-Type": "application/json"},
-                json=self._build_payload(frame),
+                json=self._build_payload(frame, prompt),
                 timeout=self._timeout,
             )
             resp.raise_for_status()
-            parsed = _parse_cosmos_response(resp.json())
+            raw = resp.json()
+            raw_response = _extract_assistant_text(raw)
+            parsed = _parse_cosmos_response(raw)
         except Exception:
+            raw_response = ""
             parsed = {"detections": []}
         latency_ms = (time.perf_counter() - start) * 1000
         # Re-use the shared response normaliser from NvidiaHttpAdapter
-        return _normalise_detections(frame, parsed, latency_ms)
+        inferred = _normalise_detections(frame, parsed, latency_ms)
+        return inferred.model_copy(
+            update={
+                "metadata": {
+                    **inferred.metadata,
+                    "vlm_response": raw_response,
+                    "vlm_model": self.model,
+                }
+            }
+        )
 
 
 def _normalise_detections(

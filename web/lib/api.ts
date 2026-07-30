@@ -141,8 +141,34 @@ export interface TrafficEvent {
   severity: string;
   confidence: number;
   timestamp: string;
+  vlm_summary?: string | null;
+  vlm_reasoning?: string | null;
+  vlm_model?: string | null;
   metadata: Record<string, unknown>;
   [key: string]: unknown;
+}
+
+export interface LiveInferenceResult {
+  result_id: string;
+  camera_id: string;
+  frame_id: string;
+  timestamp_ms: number;
+  model_id: string;
+  prompt_preset: string;
+  vlm_summary: string | null;
+  vlm_reasoning: string | null;
+  raw_response: string | null;
+  parse_ok: boolean;
+  vehicle_count: number;
+  inference_latency_ms: number | null;
+  event: TrafficEvent | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface WebRTCAnswer {
+  session_id: string;
+  sdp: string;
+  type: RTCSdpType;
 }
 
 export interface Incident {
@@ -202,12 +228,40 @@ export interface CatalogModel {
   vision: boolean;
   params_b: number;
   vram_gb: number;
+  ram_gb?: number;
   tier: "nano" | "mid" | "high" | "max";
   backend: "ollama" | "vllm";
   description: string;
   pull_cmd: string;
   tags: string[];
+  gated?: boolean;
+  access_note?: string;
+  launch_bin?: string;
+  launch_args?: string[];
+  launch_env?: Record<string, string>;
   installed: boolean;
+}
+
+export interface VllmStatus {
+  running: boolean;
+  endpoint: string;
+  model_count: number;
+  managed?: boolean;
+  managed_state?: "starting" | "stopped" | "failed" | null;
+  managed_model?: string | null;
+  managed_pid?: number | null;
+  managed_log_tail?: string[];
+}
+
+export interface VllmManageStatus {
+  managed: boolean;
+  state: "starting" | "stopped" | "failed";
+  pid: number | null;
+  model: string | null;
+  endpoint: string | null;
+  uptime_seconds: number | null;
+  exit_code: number | null;
+  log_tail: string[];
 }
 
 export interface ArtifactEntry {
@@ -307,15 +361,30 @@ export const api = {
       ),
     },
     vllm: {
-      status: (endpoint?: string) => get<{ running: boolean; endpoint: string; model_count: number }>(
+      status: (endpoint?: string) => get<VllmStatus>(
         `/inference/vllm/status${endpoint ? `?endpoint=${encodeURIComponent(endpoint)}` : ""}`
       ),
       models: (endpoint?: string) => get<{ running: boolean; models: OllamaModel[] }>(
         `/inference/vllm/models${endpoint ? `?endpoint=${encodeURIComponent(endpoint)}` : ""}`
       ),
+      start: (model: string, endpoint?: string) =>
+        post<VllmManageStatus>("/inference/vllm/start", {
+          model,
+          endpoint: endpoint ?? "http://localhost:8000",
+        }),
+      stop: () => post<VllmManageStatus>("/inference/vllm/stop", {}),
     },
     catalog: () => get<{ models: CatalogModel[] }>("/inference/catalog"),
   },
+  webrtc: {
+    offer: (payload: {
+      sdp: string;
+      type: RTCSdpType;
+      camera_id: string;
+      session_id?: string;
+    }) => post<WebRTCAnswer>("/webrtc/offer", payload),
+  },
   snapshotUrl: (cameraId: string) =>
     `${BASE}/stream/${cameraId}/snapshot.jpg?t=${Date.now()}`,
+  liveResultsUrl: () => `${BASE}/live/results`,
 };

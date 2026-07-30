@@ -1,7 +1,7 @@
 import pytest
 
 from analytics.flow import FlowWindow
-from vision.adapters import NvidiaCosmosAdapter, NvidiaVssAdapter
+from vision.adapters import NvidiaCosmosAdapter, NvidiaVssAdapter, OllamaAdapter, VllmAdapter
 from vision.camera_profiles import build_camera_connection
 from vision.live_pipeline import (
     LivePipelineSettings,
@@ -10,6 +10,13 @@ from vision.live_pipeline import (
     frame_to_event_payload,
 )
 from vision.schemas import BoundingBox, InferenceFrame, VehicleClass, VehicleDetection
+
+
+def _clear_local_model_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OLLAMA_ENDPOINT", raising=False)
+    monkeypatch.delenv("OLLAMA_MODEL", raising=False)
+    monkeypatch.delenv("VLLM_ENDPOINT", raising=False)
+    monkeypatch.delenv("VLLM_MODEL", raising=False)
 
 
 def test_build_ffmpeg_frame_command_wraps_tapo_rtsp(monkeypatch):
@@ -51,14 +58,25 @@ def test_build_ffmpeg_frame_command_can_output_mjpeg(monkeypatch):
 
 
 def test_build_detection_adapter_rejects_mock():
-    # Live runtime selector is locked to {cosmos-2b, cosmos-8b, vss} per AD-3.
     # Mock stays as the test default but is not selectable at runtime.
-    with pytest.raises(ValueError, match="Allowed: cosmos-2b, cosmos-8b, vss"):
+    with pytest.raises(
+        ValueError,
+        match=(
+            "Allowed: cosmos-2b, cosmos-8b, cosmos-3, gemma-4, "
+            "gemma-4-vllm, gemma-4-26b-nvfp4, vss"
+        ),
+    ):
         build_detection_adapter("mock")
 
 
 def test_build_detection_adapter_rejects_legacy_ollama():
-    with pytest.raises(ValueError, match="Allowed: cosmos-2b, cosmos-8b, vss"):
+    with pytest.raises(
+        ValueError,
+        match=(
+            "Allowed: cosmos-2b, cosmos-8b, cosmos-3, gemma-4, "
+            "gemma-4-vllm, gemma-4-26b-nvfp4, vss"
+        ),
+    ):
         build_detection_adapter("ollama")
 
 
@@ -72,24 +90,66 @@ def test_build_detection_adapter_nvidia_vss_alias_still_works():
     assert isinstance(adapter, NvidiaVssAdapter)
 
 
-def test_build_detection_adapter_defaults_cosmos_2b_to_vllm():
+def test_build_detection_adapter_defaults_cosmos_2b_to_vllm(monkeypatch):
+    _clear_local_model_env(monkeypatch)
     adapter = build_detection_adapter("cosmos-2b")
     assert isinstance(adapter, NvidiaCosmosAdapter)
     assert adapter.config.endpoint == "http://localhost:8000/v1"
     assert adapter.config.model == "nvidia/Cosmos-Reason2-2B"
 
 
-def test_build_detection_adapter_defaults_cosmos_8b_to_vllm():
+def test_build_detection_adapter_defaults_cosmos_8b_to_vllm(monkeypatch):
+    _clear_local_model_env(monkeypatch)
     adapter = build_detection_adapter("cosmos-8b")
     assert isinstance(adapter, NvidiaCosmosAdapter)
     assert adapter.config.endpoint == "http://localhost:8000/v1"
     assert adapter.config.model == "nvidia/Cosmos-Reason2-8B"
 
 
-def test_build_detection_adapter_cosmos_alias_resolves_to_2b():
+def test_build_detection_adapter_cosmos_alias_resolves_to_2b(monkeypatch):
+    _clear_local_model_env(monkeypatch)
     adapter = build_detection_adapter("nvidia-cosmos")
     assert isinstance(adapter, NvidiaCosmosAdapter)
     assert adapter.config.model == "nvidia/Cosmos-Reason2-2B"
+
+
+def test_build_detection_adapter_defaults_cosmos_3_to_nano_reasoner(monkeypatch):
+    _clear_local_model_env(monkeypatch)
+    adapter = build_detection_adapter("cosmos-3")
+    assert isinstance(adapter, NvidiaCosmosAdapter)
+    assert adapter.config.endpoint == "http://localhost:8000/v1"
+    assert adapter.config.model == "nvidia/cosmos3-nano-reasoner"
+
+
+def test_build_detection_adapter_cosmos3_alias_resolves_to_cosmos_3(monkeypatch):
+    _clear_local_model_env(monkeypatch)
+    adapter = build_detection_adapter("cosmos3-nano")
+    assert isinstance(adapter, NvidiaCosmosAdapter)
+    assert adapter.config.model == "nvidia/cosmos3-nano-reasoner"
+
+
+def test_build_detection_adapter_defaults_gemma_4_e4b_to_ollama(monkeypatch):
+    _clear_local_model_env(monkeypatch)
+    adapter = build_detection_adapter("gemma-4")
+    assert isinstance(adapter, OllamaAdapter)
+    assert adapter.endpoint == "http://localhost:11434/v1"
+    assert adapter.model == "gemma4:e4b"
+
+
+def test_build_detection_adapter_defaults_gemma_4_vllm_to_e4b(monkeypatch):
+    _clear_local_model_env(monkeypatch)
+    adapter = build_detection_adapter("gemma-4-vllm")
+    assert isinstance(adapter, VllmAdapter)
+    assert adapter.endpoint == "http://localhost:8000/v1"
+    assert adapter.model == "google/gemma-4-E4B-it"
+
+
+def test_build_detection_adapter_defaults_gemma_4_quantized_to_vllm(monkeypatch):
+    _clear_local_model_env(monkeypatch)
+    adapter = build_detection_adapter("gemma-4-nvfp4")
+    assert isinstance(adapter, VllmAdapter)
+    assert adapter.endpoint == "http://localhost:8000/v1"
+    assert adapter.model == "nvidia/Gemma-4-26B-A4B-NVFP4"
 
 
 def _car_frame(frame_id: str = "frame-1") -> InferenceFrame:
