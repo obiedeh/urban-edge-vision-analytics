@@ -1,7 +1,13 @@
 import uuid
 from datetime import UTC, datetime
 
-from events.schemas import EventType, Severity, TrafficEvent
+from events.schemas import (
+    EventType,
+    IntersectionIncident,
+    Severity,
+    SpeedViolationEvent,
+    TrafficEvent,
+)
 from vision.schemas import BoundingBox, InferenceFrame, VehicleClass, VehicleDetection
 from vision.source_loader import synthetic_frames
 
@@ -66,3 +72,35 @@ def test_synthetic_frames_unlimited_yields_lazily():
     first = next(gen)
     second = next(gen)
     assert first.frame_id != second.frame_id
+
+
+def test_schema_version_present_on_contract_models():
+    det = VehicleDetection(
+        track_id="t1",
+        vehicle_class=VehicleClass.car,
+        bounding_box=BoundingBox(x=0, y=0, width=1, height=1, confidence=0.5),
+        frame_id="f1",
+        timestamp_ms=0,
+    )
+    frame = InferenceFrame(frame_id="f1", camera_id="c1", timestamp_ms=0, width=1, height=1)
+    event = TrafficEvent(
+        event_id="e1",
+        camera_id="c1",
+        event_type=EventType.vehicle_detected,
+        severity=Severity.info,
+        timestamp=datetime.now(UTC),
+    )
+    now = datetime.now(UTC)
+    incident = IntersectionIncident(
+        incident_id="i1",
+        camera_id="c1",
+        event_ids=["e1"],
+        created_at=now,
+        updated_at=now,
+        severity=Severity.info,
+    )
+    for model in (det, frame, event, incident):
+        assert model.schema_version == 1
+        assert model.model_dump(mode="json")["schema_version"] == 1
+    # Subclasses inherit the field.
+    assert SpeedViolationEvent.model_fields["schema_version"].default == 1
