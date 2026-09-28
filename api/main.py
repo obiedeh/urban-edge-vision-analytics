@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -16,11 +17,13 @@ from pydantic import BaseModel, Field, model_validator
 from api.config import load_settings
 from api.pipeline_manager import PipelineManager
 from api.vllm_manager import VllmServerManager
+from cloud.publisher import build_publisher
 from events.lifecycle import EventStore
 from events.schemas import EventType, IncidentStatus, IntersectionIncident, Severity, TrafficEvent
 from store.config_store import ConfigStore
 from telemetry.metrics import InferenceMetrics
 from telemetry.runtime import RuntimeSnapshot
+from telemetry.schemas import EdgeTelemetry
 from transports.snapshot import SnapshotTransport
 from vision.camera_profiles import CameraConfigError, verify_camera_connection
 from vision.frame_slot import FrameSlot
@@ -33,6 +36,13 @@ logger = logging.getLogger(__name__)
 
 # ── Module-level singletons (only here) ────────────────────────────
 _settings = load_settings()
+_publisher = build_publisher(
+    enabled=_settings.cloud.enabled,
+    publisher=_settings.cloud.publisher,
+    thing_name=_settings.cloud.thing_name,
+    schema_version=_settings.cloud.schema_version,
+    file_path=_settings.cloud.file_path,
+)
 _store = EventStore()
 _inference_metrics = InferenceMetrics()
 _runtime = RuntimeSnapshot()
@@ -45,15 +55,32 @@ _frame_slot = FrameSlot()
 _result_broadcaster = ResultBroadcaster()
 _webrtc_sessions: dict[str, object] = {}
 _live_inference_loop: InferenceLoop | None = None
+_telemetry_task: asyncio.Task[None] | None = None
 
 _CAMERA_CONFIG_PATH = Path("configs/camera.local.json")
 
 
+def _publish_telemetry() -> None:
+    """Serialize the runtime + inference dataclasses through the telemetry contract."""
+    _publisher.publish_telemetry(EdgeTelemetry.from_dataclasses(_runtime, _inference_metrics))
+
+
+async def _telemetry_loop(interval_s: float) -> None:
+    while True:
+        await asyncio.sleep(interval_s)
+        _publish_telemetry()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _live_inference_loop
+    global _live_inference_loop, _telemetry_task
 
     _runtime.started_at = time.time()
+
+    if _settings.cloud.enabled:
+        _telemetry_task = asyncio.create_task(
+            _telemetry_loop(_settings.cloud.telemetry_interval_s)
+        )
 
     # Initialise SQLite schema
     await _config_store.init()
@@ -135,12 +162,16 @@ async def lifespan(app: FastAPI):
     yield
 
     # Graceful shutdown
+    if _telemetry_task is not None:
+        _telemetry_task.cancel()
+        _telemetry_task = None
     if _live_inference_loop is not None:
         await _live_inference_loop.stop()
         _live_inference_loop = None
     await close_peer_connections(_webrtc_sessions)
     _pipeline_manager.stop()
     _vllm_manager.stop()
+    _publisher.close()
 
 
 app = FastAPI(
@@ -259,6 +290,7 @@ def ingest_event(req: EventIngestRequest) -> TrafficEvent:
         metadata=req.metadata,
     )
     _store.add_event(event)
+    _publisher.publish_event(event)
     _known_cameras.add(event.camera_id)
     _runtime.camera_count = len(_known_cameras)
     _runtime.event_count += 1
@@ -306,6 +338,7 @@ def open_incident(req: OpenIncidentRequest) -> IntersectionIncident:
         severity=req.severity,
         summary=req.summary,
     )
+    _publisher.publish_incident(incident)
     _runtime.incident_count += 1
     return incident
 
@@ -341,6 +374,7 @@ def update_incident(
     )
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
+    _publisher.publish_incident(incident)
     return incident
 
 
@@ -369,6 +403,7 @@ def transition_incident(
     )
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
+    _publisher.publish_incident(incident)
     return incident
 
 
