@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 
+from api.config import load_settings
 from api.pipeline_manager import PipelineManager
 from api.vllm_manager import VllmServerManager
 from events.lifecycle import EventStore
@@ -31,6 +32,7 @@ from vision.webrtc.signaling import close_peer_connections
 logger = logging.getLogger(__name__)
 
 # ── Module-level singletons (only here) ────────────────────────────
+_settings = load_settings()
 _store = EventStore()
 _inference_metrics = InferenceMetrics()
 _runtime = RuntimeSnapshot()
