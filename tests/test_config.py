@@ -94,3 +94,22 @@ def test_telemetry_interval_default_and_validation(tmp_path):
     cfg.write_text(json.dumps({"cloud": {"telemetry_interval_s": 0}}))
     with pytest.raises(ValidationError):
         load_settings(cfg, env={})
+
+
+def test_iot_core_settings_from_env(tmp_path):
+    cfg = tmp_path / "c.json"
+    cfg.write_text(json.dumps({"cloud": {"enabled": True, "publisher": "iot_core"}}))
+    settings = load_settings(
+        cfg,
+        env={
+            "URBAN_EDGE_CLOUD_IOT_ENDPOINT": "x-ats.iot.us-east-1.amazonaws.com",
+            "URBAN_EDGE_CLOUD_CERT_PATH": "/etc/urban-edge/device.pem.crt",
+            "URBAN_EDGE_CLOUD_KEY_PATH": "/etc/urban-edge/private.pem.key",
+            "URBAN_EDGE_CLOUD_CA_PATH": "/etc/urban-edge/AmazonRootCA1.pem",
+        },
+    )
+    assert settings.cloud.publisher == "iot_core"
+    assert settings.cloud.iot_endpoint == "x-ats.iot.us-east-1.amazonaws.com"
+    assert settings.cloud.cert_path == "/etc/urban-edge/device.pem.crt"
+    assert settings.cloud.key_path == "/etc/urban-edge/private.pem.key"
+    assert settings.cloud.ca_path == "/etc/urban-edge/AmazonRootCA1.pem"

@@ -42,6 +42,10 @@ _publisher = build_publisher(
     thing_name=_settings.cloud.thing_name,
     schema_version=_settings.cloud.schema_version,
     file_path=_settings.cloud.file_path,
+    iot_endpoint=_settings.cloud.iot_endpoint,
+    cert_path=_settings.cloud.cert_path,
+    key_path=_settings.cloud.key_path,
+    ca_path=_settings.cloud.ca_path,
 )
 _store = EventStore()
 _inference_metrics = InferenceMetrics()

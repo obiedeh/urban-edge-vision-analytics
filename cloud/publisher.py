@@ -157,6 +157,10 @@ def build_publisher(
     thing_name: str,
     schema_version: int = 1,
     file_path: str | None = None,
+    iot_endpoint: str | None = None,
+    cert_path: str | None = None,
+    key_path: str | None = None,
+    ca_path: str | None = None,
 ) -> EventPublisher:
     """Construct the publisher named by config. Disabled or ``"null"`` -> NullPublisher."""
     if not enabled or publisher == "null":
@@ -165,4 +169,19 @@ def build_publisher(
         if not file_path:
             raise ValueError("cloud.publisher='file' requires cloud.file_path")
         return FilePublisher(file_path, thing_name=thing_name, schema_version=schema_version)
+    if publisher == "iot_core":
+        if not (iot_endpoint and cert_path and key_path):
+            raise ValueError(
+                "cloud.publisher='iot_core' requires cloud.iot_endpoint, cert_path and key_path"
+            )
+        from .iot_core import IotCoreConfig, IotCorePublisher  # awsiotsdk stays lazy
+
+        config = IotCoreConfig(
+            endpoint=iot_endpoint,
+            thing_name=thing_name,
+            cert_path=cert_path,
+            key_path=key_path,
+            ca_path=ca_path,
+        )
+        return IotCorePublisher(config, schema_version=schema_version)
     raise ValueError(f"Unknown cloud.publisher: {publisher!r}")
