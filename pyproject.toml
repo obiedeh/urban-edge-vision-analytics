@@ -29,6 +29,9 @@ vision = [
   "opencv-python-headless>=4.9",
   "onnxruntime>=1.18",
 ]
+cloud = [
+  "awsiotsdk>=1.22",
+]
 dev = [
   "pytest>=8.0",
   "pytest-asyncio>=0.23",

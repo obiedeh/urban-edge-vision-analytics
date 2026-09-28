@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_CONFIG_PATH = Path("configs/local.json")
 CONFIG_PATH_ENV = "URBAN_EDGE_CONFIG"
 
-PublisherKind = Literal["null", "file"]
+PublisherKind = Literal["null", "file", "iot_core"]
 
 
 class CameraSettings(BaseModel):
@@ -51,6 +51,11 @@ class CloudSettings(BaseModel):
     thing_name: str = "urban-edge-local"
     schema_version: int = 1
     telemetry_interval_s: float = Field(default=30.0, gt=0)
+    # iot_core publisher: cert/key files live OUTSIDE the repo (see scripts/provision_device.sh)
+    iot_endpoint: str | None = None
+    cert_path: str | None = None
+    key_path: str | None = None
+    ca_path: str | None = None
 
 
 class Settings(BaseModel):
@@ -73,6 +78,10 @@ _CLOUD_ENV_KEYS: dict[str, str] = {
     "URBAN_EDGE_CLOUD_THING_NAME": "thing_name",
     "URBAN_EDGE_CLOUD_SCHEMA_VERSION": "schema_version",
     "URBAN_EDGE_CLOUD_TELEMETRY_INTERVAL_S": "telemetry_interval_s",
+    "URBAN_EDGE_CLOUD_IOT_ENDPOINT": "iot_endpoint",
+    "URBAN_EDGE_CLOUD_CERT_PATH": "cert_path",
+    "URBAN_EDGE_CLOUD_KEY_PATH": "key_path",
+    "URBAN_EDGE_CLOUD_CA_PATH": "ca_path",
 }
 
 _TRUTHY = {"1", "true", "yes", "on"}
