@@ -273,7 +273,7 @@ export function ArtifactsPage() {
 
       {!loading && entries.length === 0 && (
         <div className="py-12 text-center text-sm text-muted-foreground">
-          No artifacts found. Run the detection pipeline to generate evidence files.
+          No artifacts found. Evidence files appear here as packs and benchmarks write them.
         </div>
       )}
 

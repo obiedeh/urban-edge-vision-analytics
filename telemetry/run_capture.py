@@ -105,9 +105,16 @@ class Tegrastats:
                 ram.append(float(s["ram_used_mb"]))
         return {
             "n_samples": len(self.samples),
-            "rails_mw": {k: {"p50": _percentile(v, 50), "peak": max(v), "min": min(v)} for k, v in rails.items()},
-            "temps_c": {k: {"p50": _percentile(v, 50), "peak": max(v)} for k, v in temps.items()},
-            "board_ram_used_mb": {"p50": _percentile(ram, 50), "peak": max(ram)} if ram else None,
+            "rails_mw": {
+                k: {"p50": _percentile(v, 50), "peak": max(v), "min": min(v)}
+                for k, v in rails.items()
+            },
+            "temps_c": {
+                k: {"p50": _percentile(v, 50), "peak": max(v)} for k, v in temps.items()
+            },
+            "board_ram_used_mb": (
+                {"p50": _percentile(ram, 50), "peak": max(ram)} if ram else None
+            ),
         }
 
 
@@ -120,7 +127,8 @@ def _device() -> dict[str, Any]:
 
     def run(cmd: list[str]) -> str | None:
         try:
-            return subprocess.run(cmd, capture_output=True, text=True, timeout=5, check=False).stdout.strip() or None
+            out = subprocess.run(cmd, capture_output=True, text=True, timeout=5, check=False)
+            return out.stdout.strip() or None
         except (OSError, subprocess.SubprocessError):
             return None
 
@@ -138,7 +146,9 @@ def _device() -> dict[str, Any]:
     }
 
 
-def capture(api: str, camera_id: str, duration_s: float, out_dir: Path, name: str, notes: str) -> Path:
+def capture(
+    api: str, camera_id: str, duration_s: float, out_dir: Path, name: str, notes: str
+) -> Path:
     client = httpx.Client(base_url=api, timeout=30)
     status0 = client.get("/runtime/status").json()
     cam0 = next((c for c in status0["cameras"] if c["camera_id"] == camera_id), None)
@@ -155,7 +165,8 @@ def capture(api: str, camera_id: str, duration_s: float, out_dir: Path, name: st
     stop = threading.Event()
 
     def sse() -> None:
-        with httpx.stream("GET", f"{api}/live/results", params={"camera_id": camera_id}, timeout=None) as r:
+        url = f"{api}/live/results"
+        with httpx.stream("GET", url, params={"camera_id": camera_id}, timeout=None) as r:
             for line in r.iter_lines():
                 if stop.is_set():
                     return
@@ -175,9 +186,17 @@ def capture(api: str, camera_id: str, duration_s: float, out_dir: Path, name: st
             st = client.get("/runtime/status").json()
             cam = next((c for c in st["cameras"] if c["camera_id"] == camera_id), None)
             if cam:
-                status_samples.append({"t": time.time(), "fps": cam["fps"], "frames_published": cam["frames_published"],
-                                       "frames_dropped": cam["frames_dropped"], "reconnects": cam["reconnects"],
-                                       "state": cam["state"], "model_state": st["model"]["state"]})
+                status_samples.append(
+                    {
+                        "t": time.time(),
+                        "fps": cam["fps"],
+                        "frames_published": cam["frames_published"],
+                        "frames_dropped": cam["frames_dropped"],
+                        "reconnects": cam["reconnects"],
+                        "state": cam["state"],
+                        "model_state": st["model"]["state"],
+                    }
+                )
         except httpx.HTTPError:
             pass
     stop.set()
@@ -190,15 +209,30 @@ def capture(api: str, camera_id: str, duration_s: float, out_dir: Path, name: st
     run_events = [e for e in run_events if e.get("timestamp", "") >= started_iso]
 
     # Drop the replayed pre-run result (first SSE message is the last known state).
-    ok_results = [r for r in results if r.get("metadata", {}).get("status") == "ok"
-                  and r.get("timestamp_ms", 0) / 1000 >= started]
-    latencies = [float(r["inference_latency_ms"]) for r in ok_results if r.get("inference_latency_ms") is not None]
+    ok_results = [
+        r for r in results
+        if r.get("metadata", {}).get("status") == "ok"
+        and r.get("timestamp_ms", 0) / 1000 >= started
+    ]
+    latencies = [
+        float(r["inference_latency_ms"]) for r in ok_results
+        if r.get("inference_latency_ms") is not None
+    ]
     statuses: dict[str, int] = {}
     for r in results:
         s = r.get("metadata", {}).get("status", "unknown")
         statuses[s] = statuses.get(s, 0) + 1
-    completion = [r["metadata"].get("completion_tokens") for r in ok_results if r["metadata"].get("completion_tokens") is not None]
-    prompt_tok = [r["metadata"].get("prompt_tokens") for r in ok_results if r["metadata"].get("prompt_tokens") is not None]
+    completion = [
+        r["metadata"]["completion_tokens"] for r in ok_results
+        if r["metadata"].get("completion_tokens") is not None
+    ]
+    prompt_tok = [
+        r["metadata"]["prompt_tokens"] for r in ok_results
+        if r["metadata"].get("prompt_tokens") is not None
+    ]
+    model_keys = ("backend", "model", "endpoint", "label", "think", "state", "total_calls",
+                  "total_failures")
+    published = cam1["frames_published"] - cam0["frames_published"]
 
     report = {
         "schema": SCHEMA,
@@ -209,7 +243,7 @@ def capture(api: str, camera_id: str, duration_s: float, out_dir: Path, name: st
         "duration_s": round(elapsed, 2),
         "device": _device(),
         "api": {"version": client.get("/health").json().get("version"), "host": status1["host"]},
-        "model": {k: status1["model"][k] for k in ("backend", "model", "endpoint", "label", "think", "state", "total_calls", "total_failures")},
+        "model": {k: status1["model"][k] for k in model_keys},
         "inference_settings": status1["inference"],
         "camera": {
             "camera_id": camera_id,
@@ -229,7 +263,7 @@ def capture(api: str, camera_id: str, duration_s: float, out_dir: Path, name: st
             "frames_decoded_in_run": cam1["frames_decoded"] - cam0["frames_decoded"],
             "frames_dropped_in_run": cam1["frames_dropped"] - cam0["frames_dropped"],
             "reconnects_in_run": cam1["reconnects"] - cam0["reconnects"],
-            "display_fps_mean": round((cam1["frames_published"] - cam0["frames_published"]) / elapsed, 3),
+            "display_fps_mean": round(published / elapsed, 3),
             "display_fps_samples": _stats([s["fps"] for s in status_samples]),
             "camera_states_seen": sorted({s["state"] for s in status_samples}),
         },
@@ -242,21 +276,35 @@ def capture(api: str, camera_id: str, duration_s: float, out_dir: Path, name: st
             "detections_per_result": _stats([float(r.get("vehicle_count", 0)) for r in ok_results]),
             "completion_tokens": _stats([float(v) for v in completion]),
             "prompt_tokens": _stats([float(v) for v in prompt_tok]),
-            "model_calls_in_run": status1["model"]["total_calls"] - status0["model"]["total_calls"],
-            "model_failures_in_run": status1["model"]["total_failures"] - status0["model"]["total_failures"],
+            "model_calls_in_run": (
+                status1["model"]["total_calls"] - status0["model"]["total_calls"]
+            ),
+            "model_failures_in_run": (
+                status1["model"]["total_failures"] - status0["model"]["total_failures"]
+            ),
         },
         "events": {
             "produced_in_run": max(0, events_after - events_before),
             "by_type": _count(run_events, "event_type"),
             "by_pack": _count(run_events, "pack_id"),
-            "review_recommended": sum(1 for e in run_events if e.get("operator_review_recommended")),
+            "review_recommended": sum(
+                1 for e in run_events if e.get("operator_review_recommended")
+            ),
         },
         "tegrastats": tegra.summary() if tegra_ok else None,
-        "samples": {"status": status_samples, "results": [
-            {"t": r.get("timestamp_ms"), "status": r.get("metadata", {}).get("status"),
-             "latency_ms": r.get("inference_latency_ms"), "detections": r.get("vehicle_count"),
-             "summary": (r.get("vlm_summary") or "")[:200]} for r in results
-        ]},
+        "samples": {
+            "status": status_samples,
+            "results": [
+                {
+                    "t": r.get("timestamp_ms"),
+                    "status": r.get("metadata", {}).get("status"),
+                    "latency_ms": r.get("inference_latency_ms"),
+                    "detections": r.get("vehicle_count"),
+                    "summary": (r.get("vlm_summary") or "")[:200],
+                }
+                for r in results
+            ],
+        },
     }
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / "run.json"
@@ -277,7 +325,9 @@ def _count(events: list[dict[str, Any]], key: str) -> dict[str, int]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Capture a measured live run from the Urban Edge API.")
+    parser = argparse.ArgumentParser(
+        description="Capture a measured live run from the Urban Edge API."
+    )
     parser.add_argument("--api", default="http://127.0.0.1:8080")
     parser.add_argument("--camera-id", required=True)
     parser.add_argument("--duration", type=float, default=120.0)
@@ -285,12 +335,18 @@ def main() -> None:
     parser.add_argument("--notes", default="")
     parser.add_argument("--out", default="artifacts/runs")
     args = parser.parse_args()
-    path = capture(args.api, args.camera_id, args.duration, Path(args.out) / args.name, args.name, args.notes)
+    path = capture(
+        args.api, args.camera_id, args.duration, Path(args.out) / args.name, args.name, args.notes
+    )
     data = json.loads(path.read_text())
     print(f"written {path}")
-    print(f"video: {data['video']['display_fps_mean']} fps mean, dropped {data['video']['frames_dropped_in_run']}")
-    print(f"inference: {data['inference']['results_ok']} ok results, p50 {data['inference']['inference_latency_ms'].get('p50')} ms, "
-          f"p95 {data['inference']['inference_latency_ms'].get('p95')} ms")
+    video, inf = data["video"], data["inference"]
+    print(f"video: {video['display_fps_mean']} fps mean, dropped {video['frames_dropped_in_run']}")
+    lat = inf["inference_latency_ms"]
+    print(
+        f"inference: {inf['results_ok']} ok results, "
+        f"p50 {lat.get('p50')} ms, p95 {lat.get('p95')} ms"
+    )
     print(f"events: {data['events']['produced_in_run']}")
     if data["tegrastats"]:
         vin = data["tegrastats"]["rails_mw"].get("VIN") or {}

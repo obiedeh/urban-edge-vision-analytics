@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
@@ -416,7 +416,10 @@ def transition_incident(
     return incident
 
 
-# ── Serve compiled frontend (must be last — catch-all for SPA routing) ────────
+# ── Serve compiled frontend ───────────────────────────────────────────────────
+# Some UI routes share a path with API routes (/cameras, /events). A browser
+# navigation asks for text/html, a fetch() does not, so the middleware serves
+# the SPA shell for HTML navigations and leaves API calls untouched.
 _web_dist = Path(__file__).parent.parent / "web" / "dist"
 if _web_dist.exists():
     app.mount(
@@ -424,6 +427,17 @@ if _web_dist.exists():
         StaticFiles(directory=str(_web_dist / "assets")),
         name="web-assets",
     )
+
+    @app.middleware("http")
+    async def spa_for_html_navigation(request: Request, call_next):  # type: ignore[no-untyped-def]
+        accept = request.headers.get("accept", "")
+        if (
+            request.method == "GET"
+            and "text/html" in accept
+            and not request.url.path.startswith(("/assets", "/docs", "/openapi.json", "/redoc"))
+        ):
+            return FileResponse(str(_web_dist / "index.html"))
+        return await call_next(request)
 
     @app.get("/", include_in_schema=False)
     @app.get("/{path:path}", include_in_schema=False)
