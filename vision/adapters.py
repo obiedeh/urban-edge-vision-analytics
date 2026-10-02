@@ -381,7 +381,7 @@ def _normalise_detections(
                 y=float(box.get("y", 0)),
                 width=float(box.get("width", 0)),
                 height=float(box.get("height", 0)),
-                confidence=float(item.get("confidence", box.get("confidence", 1.0))),
+                confidence=float(item.get("confidence", box.get("confidence", 1.0)) or 0.0),
             ),
             frame_id=frame.frame_id,
             timestamp_ms=frame.timestamp_ms,

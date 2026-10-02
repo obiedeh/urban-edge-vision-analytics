@@ -21,12 +21,31 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
       - name: Lint
-        run: ruff check api vision events analytics telemetry cloud tests examples
+        run: ruff check .
       - name: Type check
-        run: mypy api vision events analytics telemetry cloud
+        run: mypy api vision events analytics telemetry cloud packs store transports
       - name: Test
         run: pytest -q
       - name: Generate mock inference evidence
         run: python examples/generate_mock_report.py --output examples/mock_inference_report.json
       - name: Validate evidence artifacts
         run: test -s examples/mock_inference_report.json
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - name: Install
+        run: pnpm install --frozen-lockfile
+        working-directory: web
+      - name: Build
+        run: pnpm build
+        working-directory: web
