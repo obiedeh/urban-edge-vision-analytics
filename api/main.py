@@ -436,10 +436,19 @@ if _web_dist.exists():
             and "text/html" in accept
             and not request.url.path.startswith(("/assets", "/docs", "/openapi.json", "/redoc"))
         ):
-            return FileResponse(str(_web_dist / "index.html"))
+            return _spa_shell()
         return await call_next(request)
 
     @app.get("/", include_in_schema=False)
     @app.get("/{path:path}", include_in_schema=False)
     async def spa_fallback(path: str = "") -> FileResponse:
-        return FileResponse(str(_web_dist / "index.html"))
+        return _spa_shell()
+
+
+def _spa_shell() -> FileResponse:
+    # The shell shares URLs with JSON routes; without these headers the browser
+    # would reuse the cached HTML navigation response for a later fetch().
+    return FileResponse(
+        str(_web_dist / "index.html"),
+        headers={"Cache-Control": "no-store", "Vary": "Accept"},
+    )
