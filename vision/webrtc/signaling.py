@@ -14,8 +14,8 @@ from vision.webrtc.track import IncomingVideoTrack
 try:  # pragma: no cover - exercised when aiortc is installed
     from aiortc import RTCPeerConnection, RTCSessionDescription
 except ImportError:  # pragma: no cover - tests can inject fakes through dependencies
-    RTCPeerConnection = None  # type: ignore[assignment]
-    RTCSessionDescription = None  # type: ignore[assignment]
+    RTCPeerConnection = None  # type: ignore[assignment,misc]
+    RTCSessionDescription = None  # type: ignore[assignment,misc]
 
 router = APIRouter(tags=["webrtc"])
 

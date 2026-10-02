@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Iterable
 from datetime import UTC, datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -91,7 +92,7 @@ def _estimate_min_speed(d: VehicleDetection) -> float:
 
 def _compliance_decision(
     min_speed: float, dwell_ms: int, cfg: StopSignConfig
-) -> str:
+) -> Literal["compliant", "rolling_stop", "no_stop"]:
     if min_speed <= cfg.speed_threshold_kph and dwell_ms >= cfg.dwell_threshold_ms:
         return "compliant"
     if min_speed <= cfg.speed_threshold_kph * 2.0:

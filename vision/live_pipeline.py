@@ -160,7 +160,7 @@ def build_detection_adapter(
         return VllmAdapter(endpoint=resolved_endpoint, model=resolved_model)
 
     # normalized == "vss"
-    resolved_endpoint = endpoint or os.getenv("NVIDIA_VSS_ENDPOINT")
+    resolved_endpoint = endpoint or os.getenv("NVIDIA_VSS_ENDPOINT") or ""
     if not resolved_endpoint:
         raise ValueError(
             "vss adapter requires --detector-endpoint or NVIDIA_VSS_ENDPOINT. "
