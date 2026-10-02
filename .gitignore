@@ -4,6 +4,8 @@ __pycache__/
 .venv/
 .env
 configs/camera.local.json
+configs/*.local.json*
+store/*.sqlite*
 
 # Device identity (scripts/provision_device.sh writes outside the repo; belt and braces)
 *.pem
