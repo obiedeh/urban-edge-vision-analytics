@@ -23,7 +23,7 @@ jobs:
       - name: Lint
         run: ruff check .
       - name: Type check
-        run: mypy api vision events analytics telemetry cloud packs store transports
+        run: mypy api vision events analytics telemetry cloud packs store
       - name: Test
         run: pytest -q
       - name: Generate mock inference evidence

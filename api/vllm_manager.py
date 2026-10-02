@@ -1,3 +1,11 @@
+"""App-managed local model server (vLLM) — binary or Docker launch.
+
+On a workstation ``vllm serve`` runs from the venv. On Jetson the supported
+path is NVIDIA's vLLM container, so the manager can also run
+``docker run ... <image> vllm serve ...`` with the model directory mounted.
+Either way the process is owned by this API: start, stop, status, log tail.
+Nothing outside this manager (Isaac Sim, Ollama, other containers) is touched.
+"""
 from __future__ import annotations
 
 import os
@@ -7,6 +15,7 @@ import threading
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from urllib.parse import urlparse
 
 MAX_LOG_LINES = 1000
@@ -19,6 +28,18 @@ class VllmEndpoint:
     port: int
 
 
+@dataclass(frozen=True)
+class DockerLaunch:
+    image: str
+    model_path: str                  # host path to the model directory
+    served_model_name: str
+    container_name: str = "urban-edge-vllm"
+    gpu_memory_utilization: float = 0.25
+    max_model_len: int = 8192
+    extra_args: tuple[str, ...] = ()
+    cache_dir: str = "~/.cache/vllm"
+
+
 class VllmServerManager:
     """Owns a single local vLLM server process started by this API."""
 
@@ -29,6 +50,11 @@ class VllmServerManager:
         self._started_at: float | None = None
         self._log_tail: list[str] = []
         self._lock = threading.RLock()
+        self._launcher: str = "binary"
+        self._container_name: str | None = None
+        self._reasoning_parser: str | None = None
+
+    # ── binary launch ─────────────────────────────────────────────────────────
 
     def start(
         self,
@@ -46,10 +72,7 @@ class VllmServerManager:
         selected_endpoint = parse_local_vllm_endpoint(endpoint)
         with self._lock:
             if self._proc is not None and self._proc.poll() is None:
-                if (
-                    self._model == selected_model
-                    and self._endpoint == selected_endpoint
-                ):
+                if self._model == selected_model and self._endpoint == selected_endpoint:
                     return self.status()
                 self._stop_locked()
 
@@ -66,38 +89,99 @@ class VllmServerManager:
                     f"Set {env_var} or install {executable_name}."
                 )
 
+            args = list(extra_args or [])
             command = [
                 vllm_bin,
                 "serve",
                 selected_model,
                 "--host",
-                "0.0.0.0",
+                "127.0.0.1",
                 "--port",
                 str(selected_endpoint.port),
-                *(extra_args or []),
+                *args,
             ]
             env = {
                 **os.environ,
                 "PYTHONUNBUFFERED": "1",
                 **{k: str(v) for k, v in (extra_env or {}).items()},
             }
-            self._proc = subprocess.Popen(
-                command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-                env=env,
-            )
-            self._model = selected_model
-            self._endpoint = selected_endpoint
-            self._started_at = time.time()
-            self._log_tail = [
-                " ".join(command),
-                f"loading model={selected_model}",
-            ]
-            threading.Thread(target=self._drain_stdout, daemon=True).start()
+            self._launch(command, env, selected_model, selected_endpoint, "binary", args)
             return self.status()
+
+    # ── docker launch ─────────────────────────────────────────────────────────
+
+    def start_docker(
+        self,
+        *,
+        launch: DockerLaunch,
+        endpoint: str | None = None,
+    ) -> dict:
+        selected_endpoint = parse_local_vllm_endpoint(endpoint)
+        docker = shutil.which("docker")
+        if not docker:
+            raise FileNotFoundError("docker executable was not found on this host.")
+        model_dir = Path(os.path.expanduser(launch.model_path))
+        if not model_dir.exists():
+            raise FileNotFoundError(f"Model directory {model_dir} does not exist.")
+        with self._lock:
+            if self._proc is not None and self._proc.poll() is None:
+                if self._model == launch.served_model_name and self._endpoint == selected_endpoint:
+                    return self.status()
+                self._stop_locked()
+            # Remove a stale container with the same name (exited earlier run).
+            subprocess.run([docker, "rm", "-f", launch.container_name], capture_output=True)
+            cache_dir = Path(os.path.expanduser(launch.cache_dir))
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            mount_point = f"/models/{model_dir.name}"
+            args = list(launch.extra_args)
+            command = [
+                docker, "run", "--rm", "--name", launch.container_name,
+                "--runtime", "nvidia", "--network", "host", "--ipc", "host",
+                "-v", f"{model_dir}:{mount_point}",
+                "-v", f"{cache_dir}:/root/.cache/vllm",
+                launch.image,
+                "vllm", "serve", mount_point,
+                "--served-model-name", launch.served_model_name,
+                "--host", "0.0.0.0",
+                "--port", str(selected_endpoint.port),
+                "--gpu-memory-utilization", str(launch.gpu_memory_utilization),
+                "--max-model-len", str(launch.max_model_len),
+                *args,
+            ]
+            env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+            self._launch(
+                command, env, launch.served_model_name, selected_endpoint, "docker", args,
+                container_name=launch.container_name,
+            )
+            return self.status()
+
+    def _launch(
+        self,
+        command: list[str],
+        env: dict[str, str],
+        model: str,
+        endpoint: VllmEndpoint,
+        launcher: str,
+        args: Sequence[str],
+        *,
+        container_name: str | None = None,
+    ) -> None:
+        self._proc = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            env=env,
+        )
+        self._model = model
+        self._endpoint = endpoint
+        self._started_at = time.time()
+        self._launcher = launcher
+        self._container_name = container_name
+        self._reasoning_parser = _reasoning_parser_from_args(args)
+        self._log_tail = [" ".join(command), f"loading model={model}"]
+        threading.Thread(target=self._drain_stdout, daemon=True).start()
 
     def stop(self) -> dict:
         with self._lock:
@@ -106,15 +190,18 @@ class VllmServerManager:
 
     def status(self) -> dict:
         with self._lock:
+            base = {
+                "model": self._model,
+                "endpoint": self._endpoint.api_url if self._endpoint else None,
+                "launcher": self._launcher,
+                "container_name": self._container_name,
+                "reasoning_parser": self._reasoning_parser,
+                "log_tail": list(self._log_tail[-MAX_LOG_LINES:]),
+            }
             if self._proc is None:
                 return {
-                    "state": "stopped",
-                    "pid": None,
-                    "model": self._model,
-                    "endpoint": self._endpoint.api_url if self._endpoint else None,
-                    "uptime_seconds": None,
-                    "exit_code": None,
-                    "log_tail": list(self._log_tail[-MAX_LOG_LINES:]),
+                    **base, "state": "stopped", "pid": None,
+                    "uptime_seconds": None, "exit_code": None,
                 }
 
             exit_code = self._proc.poll()
@@ -126,22 +213,24 @@ class VllmServerManager:
                 else None
             )
             return {
+                **base,
                 "state": state,
                 "pid": self._proc.pid,
-                "model": self._model,
-                "endpoint": self._endpoint.api_url if self._endpoint else None,
                 "uptime_seconds": uptime,
                 "exit_code": exit_code,
-                "log_tail": list(self._log_tail[-MAX_LOG_LINES:]),
             }
 
     def _stop_locked(self) -> None:
         if self._proc is None:
             return
         if self._proc.poll() is None:
+            if self._launcher == "docker" and self._container_name and shutil.which("docker"):
+                subprocess.run(
+                    ["docker", "stop", "-t", "20", self._container_name], capture_output=True
+                )
             self._proc.terminate()
             try:
-                self._proc.wait(timeout=15)
+                self._proc.wait(timeout=25)
             except subprocess.TimeoutExpired:
                 self._proc.kill()
                 self._proc.wait()
@@ -161,6 +250,16 @@ class VllmServerManager:
                 self._log_tail.append(clean)
                 if len(self._log_tail) > MAX_LOG_LINES:
                     del self._log_tail[: len(self._log_tail) - MAX_LOG_LINES]
+
+
+def _reasoning_parser_from_args(args: Sequence[str]) -> str | None:
+    args = list(args)
+    for i, arg in enumerate(args):
+        if arg == "--reasoning-parser" and i + 1 < len(args):
+            return args[i + 1]
+        if arg.startswith("--reasoning-parser="):
+            return arg.split("=", 1)[1]
+    return None
 
 
 def parse_local_vllm_endpoint(endpoint: str | None = None) -> VllmEndpoint:

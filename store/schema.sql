@@ -10,6 +10,15 @@ CREATE TABLE IF NOT EXISTS cameras (
     enabled INTEGER DEFAULT 1,
     retention_days INTEGER DEFAULT 30
 );
+-- Columns added by ConfigStore.init() migrations:
+--   host, port, username, password_enc, stream_path, stream_quality, channel,
+--   rtsp_transport, show_on_live, created_at, updated_at
+
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS zones (
     id TEXT PRIMARY KEY,
@@ -43,6 +52,7 @@ CREATE TABLE IF NOT EXISTS speed_calibrations (
     captured_at TEXT NOT NULL,
     FOREIGN KEY (camera_id) REFERENCES cameras(id)
 );
+-- Column added by migration: posted_speed_kph
 
 CREATE TABLE IF NOT EXISTS stop_zones (
     id TEXT PRIMARY KEY,
@@ -60,4 +70,28 @@ CREATE TABLE IF NOT EXISTS audit (
     target_id TEXT NOT NULL,
     payload_json TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS events (
+    event_id TEXT PRIMARY KEY,
+    camera_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    timestamp TEXT NOT NULL,
+    pack_id TEXT,
+    operator_review_recommended INTEGER NOT NULL DEFAULT 0,
+    review_status TEXT NOT NULL DEFAULT 'none',
+    review_note TEXT NOT NULL DEFAULT '',
+    reviewed_at TEXT,
+    payload_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_events_camera_ts ON events(camera_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_events_review ON events(operator_review_recommended, review_status);
+
+CREATE TABLE IF NOT EXISTS incidents (
+    incident_id TEXT PRIMARY KEY,
+    camera_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    payload_json TEXT NOT NULL
 );

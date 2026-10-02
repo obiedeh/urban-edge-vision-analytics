@@ -24,7 +24,6 @@ COPY analytics analytics
 COPY telemetry telemetry
 COPY store store
 COPY packs packs
-COPY transports transports
 COPY cloud cloud
 # Only tracked config templates. configs/camera.local.json (untracked, holds
 # camera credentials) is never baked in: mount it or use CAMERA_* env vars.
