@@ -11,6 +11,27 @@ const https =
       }
     : undefined;
 
+// Dev-only proxy target for the FastAPI backend (production serves web/dist from uvicorn itself).
+// Override with e.g. `VITE_DEV_API_TARGET=http://localhost:18090 pnpm dev`.
+const apiTarget = process.env.VITE_DEV_API_TARGET ?? "http://localhost:8080";
+
+const apiPrefixes = [
+  "/cameras",
+  "/use-cases",
+  "/stream",
+  "/live",
+  "/webrtc",
+  "/settings",
+  "/runtime",
+  "/host",
+  "/inference",
+  "/events",
+  "/incidents",
+  "/metrics",
+  "/artifacts",
+  "/health",
+];
+
 export default defineConfig({
   plugins: [react()],
   resolve: {
@@ -21,21 +42,22 @@ export default defineConfig({
   server: {
     https,
     port: 3000,
-    proxy: {
-      "/api": "http://localhost:8080",
-      "/cameras": "http://localhost:8080",
-      "/events": "http://localhost:8080",
-      "/incidents": "http://localhost:8080",
-      "/inference": "http://localhost:8080",
-      "/metrics": "http://localhost:8080",
-      "/use-cases": "http://localhost:8080",
-      "/stream": "http://localhost:8080",
-      "/artifacts": "http://localhost:8080",
-      "/runtime": "http://localhost:8080",
-      "/health": "http://localhost:8080",
-      "/pipeline": "http://localhost:8080",
-      "/webrtc": "http://localhost:8080",
-      "/live/results": "http://localhost:8080",
-    },
+    proxy: Object.fromEntries(
+      apiPrefixes.map((p) => [
+        p,
+        {
+          target: apiTarget,
+          changeOrigin: true,
+          // SPA routes share these prefixes (/live, /events, /cameras ...): only proxy
+          // requests that are not asking for an HTML document.
+          bypass: (req: { headers: Record<string, string | string[] | undefined> }) => {
+            const accept = req.headers.accept;
+            const a = Array.isArray(accept) ? accept.join(",") : accept ?? "";
+            if (a.includes("text/html") && !a.includes("multipart/x-mixed-replace")) return "/index.html";
+            return undefined;
+          },
+        },
+      ])
+    ),
   },
 });

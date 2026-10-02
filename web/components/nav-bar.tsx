@@ -1,25 +1,30 @@
 import { NavLink } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { Camera, Activity, LayoutGrid, Settings, BarChart2, FolderOpen } from "lucide-react";
+import {
+  Camera, Activity, LayoutGrid, Settings, BarChart2, FolderOpen, Video, Cpu, ClipboardCheck,
+} from "lucide-react";
 
 const links = [
-  { to: "/live",      label: "Live",      icon: Camera },
-  { to: "/events",    label: "Events",    icon: Activity },
+  { to: "/live",      label: "Live",      icon: Video },
+  { to: "/cameras",   label: "Cameras",   icon: Camera },
+  { to: "/models",    label: "Models",    icon: Cpu },
   { to: "/studio",    label: "Studio",    icon: Settings },
+  { to: "/events",    label: "Events",    icon: Activity },
+  { to: "/review",    label: "Review",    icon: ClipboardCheck },
   { to: "/metrics",   label: "Metrics",   icon: BarChart2 },
   { to: "/artifacts", label: "Artifacts", icon: FolderOpen },
 ];
 
 export function NavBar() {
   return (
-    <header className="border-b border-border bg-card px-4 py-2 flex items-center gap-6">
+    <header className="border-b border-border bg-card px-4 py-2 flex items-center gap-6 flex-wrap">
       <div className="flex items-center gap-2 mr-4">
         <LayoutGrid className="h-5 w-5 text-primary" />
         <span className="font-semibold text-foreground text-sm tracking-tight">
           Urban Edge Vision
         </span>
       </div>
-      <nav className="flex items-center gap-1">
+      <nav className="flex items-center gap-1 flex-wrap">
         {links.map(({ to, label, icon: Icon }) => (
           <NavLink
             key={to}

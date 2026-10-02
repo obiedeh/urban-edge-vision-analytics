@@ -1,6 +1,11 @@
 import { cn } from "@/lib/utils";
 import type { Binding, UseCasePack } from "@/lib/api";
 
+/** Binding with a UI-side enabled flag (the server only stores enabled bindings). */
+export interface ToggleBinding extends Binding {
+  enabled: boolean;
+}
+
 const PACK_LABELS: Record<string, string> = {
   moving_object: "Moving Object",
   speed_violation: "Speed Violation",
@@ -8,9 +13,9 @@ const PACK_LABELS: Record<string, string> = {
 };
 
 const PACK_DESC: Record<string, string> = {
-  moving_object: "Detects persons in frame with direction & attributes",
-  speed_violation: "Vehicles exceeding posted speed across two calibrated gates",
-  stop_sign: "Vehicles failing to stop at a defined stop zone",
+  moving_object: "Tracks target classes (default: pedestrians) with direction and descriptor; optional zone",
+  speed_violation: "Vehicles exceeding posted speed across two calibrated gates (needs speed calibration)",
+  stop_sign: "Vehicles failing to stop inside a drawn stop zone (needs stop zone)",
 };
 
 // Blocked combinations per the brief §11.4
@@ -35,8 +40,8 @@ function wouldBeBlocked(active: Set<string>, toggling: string): boolean {
 
 interface Props {
   packs: UseCasePack[];
-  bindings: Binding[];
-  onChange: (updated: Binding[]) => void;
+  bindings: ToggleBinding[];
+  onChange: (updated: ToggleBinding[]) => void;
   disabled?: boolean;
 }
 
@@ -47,7 +52,7 @@ export function PackToggleGrid({ packs, bindings, onChange, disabled }: Props) {
 
   function toggle(packId: string) {
     const isActive = activePacks.has(packId);
-    const updated: Binding[] = packs.map((p) => {
+    const updated: ToggleBinding[] = packs.map((p) => {
       const existing = bindings.find((b) => b.pack_id === p.pack_id);
       const enabled =
         p.pack_id === packId ? !isActive : (existing?.enabled ?? false);
@@ -88,6 +93,9 @@ export function PackToggleGrid({ packs, bindings, onChange, disabled }: Props) {
               {PACK_LABELS[p.pack_id] ?? p.pack_id}
             </span>
             <span className="text-xs">{PACK_DESC[p.pack_id] ?? ""}</span>
+            {p.requires.length > 0 && (
+              <span className="text-[10px] text-muted-foreground/70">requires: {p.requires.join(", ")}</span>
+            )}
             {blocked && (
               <span className="absolute top-2 right-2 text-[9px] text-yellow-400 border border-yellow-400/40 px-1 rounded">
                 BLOCKED
