@@ -13,10 +13,10 @@ test: .venv
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 $(PYTHON) -m pytest -q
 
 lint: .venv
-	$(PYTHON) -m ruff check api vision events analytics telemetry tests examples
+	$(PYTHON) -m ruff check .
 
 typecheck: .venv
-	$(PYTHON) -m mypy api vision events analytics telemetry
+	$(PYTHON) -m mypy api vision events analytics telemetry cloud packs store
 
 demo-report: .venv
 	$(PYTHON) examples/generate_mock_report.py --output examples/mock_inference_report.json

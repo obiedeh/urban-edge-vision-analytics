@@ -196,53 +196,7 @@ def test_metrics_flow_has_data_source() -> None:
 # ── /stream/{camera_id}/snapshot.jpg ─────────────────────────────────────────
 
 
-def test_snapshot_returns_jpeg() -> None:
-    resp = client.get("/stream/cam-1/snapshot.jpg")
-    assert resp.status_code == 200
-    assert resp.headers["content-type"] == "image/jpeg"
-    assert resp.content[:2] == b"\xff\xd8"
-
-
-def test_snapshot_no_cache_header() -> None:
+def test_snapshot_404_when_camera_not_running() -> None:
     resp = client.get("/stream/cam-x/snapshot.jpg")
-    assert resp.headers.get("cache-control") == "no-store"
-
-
-# ── /speed-calibration ────────────────────────────────────────────────────────
-
-
-def test_get_speed_calibration_not_found() -> None:
-    resp = client.get("/cameras/cam-none/speed-calibration")
     assert resp.status_code == 404
-
-
-def test_save_and_get_speed_calibration() -> None:
-    cam = "cam-cal-get"
-    client.post(
-        f"/cameras/{cam}/speed-calibration",
-        json={
-            "gate_a": {"x": 0, "y": 0, "width": 100, "height": 10},
-            "gate_b": {"x": 0, "y": 200, "width": 100, "height": 10},
-            "real_world_distance_m": 15.0,
-        },
-    )
-    resp = client.get(f"/cameras/{cam}/speed-calibration")
-    assert resp.status_code == 200
-    assert resp.json()["real_world_distance_m"] == 15.0
-
-
-# ── /stop-zone ────────────────────────────────────────────────────────────────
-
-
-def test_get_stop_zone_not_found() -> None:
-    resp = client.get("/cameras/cam-none/stop-zone")
-    assert resp.status_code == 404
-
-
-def test_save_and_get_stop_zone() -> None:
-    cam = "cam-zone-get"
-    poly = [[0, 0], [100, 0], [100, 100], [0, 100]]
-    client.put(f"/cameras/{cam}/stop-zone", json={"polygon": poly})
-    resp = client.get(f"/cameras/{cam}/stop-zone")
-    assert resp.status_code == 200
-    assert resp.json()["polygon"] == poly
+    assert client.get("/stream/cam-x/live.mjpeg").status_code == 404

@@ -1,0 +1,18 @@
+# Build context hygiene: never ship local secrets, envs or build caches.
+.git
+.venv
+.env
+.env.*
+web/node_modules
+web/dist
+web/.env.local
+web/.env.*.local
+configs/camera.local.json
+*.local.json
+**/__pycache__
+*.py[cod]
+*.egg-info
+.pytest_cache
+.mypy_cache
+.ruff_cache
+store/*.sqlite

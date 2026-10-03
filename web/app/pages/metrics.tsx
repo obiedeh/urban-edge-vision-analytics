@@ -28,7 +28,7 @@ function StatusStrip({
   return (
     <div className="flex items-center gap-3 px-4 py-2 rounded-lg border border-border bg-card/50 text-xs text-muted-foreground flex-wrap">
       <span>
-        Adapter:{" "}
+        Inference backend:{" "}
         <span className="font-mono text-foreground">{adapter}</span>
       </span>
       {source && <DataSourceBadge source={source} />}
@@ -280,15 +280,15 @@ export function MetricsPage() {
       const [kpisRes, flowRes, bmRes] = await Promise.allSettled([
         api.metrics.kpis(),
         api.metrics.flow(),
-        fetch("/metrics/benchmarks").then((r) => r.json()),
+        api.metrics.benchmarks(),
       ]);
       if (kpisRes.status === "fulfilled") {
         setTiles(kpisRes.value.tiles ?? []);
         setAdapter(kpisRes.value.adapter ?? "");
-        setTopSource((kpisRes.value as unknown as Record<string, unknown>).data_source as DataSource ?? "");
+        setTopSource(kpisRes.value.data_source ?? "");
       }
       if (flowRes.status === "fulfilled") setFlow(flowRes.value);
-      if (bmRes.status === "fulfilled") setBenchmarks(bmRes.value as typeof benchmarks);
+      if (bmRes.status === "fulfilled") setBenchmarks(bmRes.value as unknown as typeof benchmarks);
     } catch {
       // silent
     } finally {
@@ -328,7 +328,7 @@ export function MetricsPage() {
           <BenchmarkSection benchmarks={benchmarks} />
           {tiles.length === 0 && !flow && (
             <div className="py-12 text-center text-sm text-muted-foreground">
-              No metrics available yet. Start the detection pipeline to populate data.
+              No metrics available yet. Enable a camera and select a model to populate data.
             </div>
           )}
         </>

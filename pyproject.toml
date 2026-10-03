@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Edge vision inference and traffic event observability for smart intersections"
 readme = "README.md"
 requires-python = ">=3.11"
-license = {text = "MIT"}
+license = {text = "Apache-2.0"}
 dependencies = [
   "fastapi>=0.110",
   "uvicorn[standard]>=0.27",
@@ -18,16 +18,21 @@ dependencies = [
   "sse-starlette>=2.1",
   "aiortc>=1.9",
   "av>=12",
+  "numpy>=1.26",
+  "Pillow>=10",
+  "cryptography>=42",
 ]
 
 [project.scripts]
 urban-edge-camera-check = "vision.camera_profiles:main"
-urban-edge-live-pipeline = "vision.live_pipeline:main"
 
 [project.optional-dependencies]
 vision = [
   "opencv-python-headless>=4.9",
   "onnxruntime>=1.18",
+]
+cloud = [
+  "awsiotsdk>=1.22",
 ]
 dev = [
   "pytest>=8.0",
@@ -39,10 +44,11 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["api*", "vision*", "events*", "analytics*", "telemetry*", "packs*", "store*", "transports*"]
+include = ["api*", "vision*", "events*", "analytics*", "telemetry*", "packs*", "store*", "cloud*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"
 
 [tool.ruff]
 line-length = 100

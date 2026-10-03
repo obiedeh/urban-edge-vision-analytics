@@ -7,7 +7,6 @@ import re
 import time
 import uuid
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from typing import Any
 
 import httpx
@@ -83,271 +82,6 @@ def _mock_vlm_response(prompt: str, vehicle_count: int) -> str:
     return f"Synthetic intersection frame with {vehicle_count} visible vehicles"
 
 
-@dataclass(frozen=True)
-class NvidiaEndpointConfig:
-    endpoint: str
-    api_key: str | None = None
-    model: str | None = None
-    timeout_s: float = 30.0
-
-
-class NvidiaHttpAdapter(DetectionAdapter):
-    """HTTP adapter scaffold for NVIDIA VSS, Cosmos/world-model, NIM, or gateway services.
-
-    The camera ingress path is separate from this adapter. The payload intentionally sends
-    frame metadata today; production integrations should replace or extend this method with
-    encoded frames, object tracks, clip references, or VSS asset IDs expected by the service.
-    """
-
-    provider: str = "nvidia"
-
-    def __init__(self, config: NvidiaEndpointConfig) -> None:
-        self.config = config
-
-    def _headers(self) -> dict[str, str]:
-        headers = {"Content-Type": "application/json"}
-        if self.config.api_key:
-            headers["Authorization"] = f"Bearer {self.config.api_key}"
-        return headers
-
-    def _payload(self, frame: InferenceFrame, prompt: str = "") -> dict[str, Any]:
-        return {
-            "provider": self.provider,
-            "model": self.config.model,
-            "prompt": prompt,
-            "frame": {
-                "frame_id": frame.frame_id,
-                "camera_id": frame.camera_id,
-                "timestamp_ms": frame.timestamp_ms,
-                "width": frame.width,
-                "height": frame.height,
-                "source_type": frame.source_type,
-            },
-        }
-
-    def _parse_response(
-        self,
-        frame: InferenceFrame,
-        data: dict[str, Any],
-        latency_ms: float,
-    ) -> InferenceFrame:
-        detections: list[VehicleDetection] = []
-        for item in data.get("detections", []):
-            label = str(item.get("vehicle_class", item.get("label", "unknown"))).lower()
-            vehicle_class = (
-                VehicleClass(label)
-                if label in VehicleClass._value2member_map_
-                else VehicleClass.unknown
-            )
-            box = item.get("bounding_box", item.get("bbox", {}))
-            detections.append(
-                VehicleDetection(
-                    track_id=str(item.get("track_id", uuid.uuid4().hex[:8])),
-                    vehicle_class=vehicle_class,
-                    bounding_box=BoundingBox(
-                        x=float(box.get("x", 0.0)),
-                        y=float(box.get("y", 0.0)),
-                        width=float(box.get("width", 0.0)),
-                        height=float(box.get("height", 0.0)),
-                        confidence=float(item.get("confidence", box.get("confidence", 1.0))),
-                    ),
-                    frame_id=frame.frame_id,
-                    timestamp_ms=frame.timestamp_ms,
-                    metadata={"provider": self.provider},
-                )
-            )
-        return frame.model_copy(
-            update={"detections": detections, "inference_latency_ms": latency_ms}
-        )
-
-    def infer(self, frame: InferenceFrame, prompt: str = "") -> InferenceFrame:
-        start = time.perf_counter()
-        response = httpx.post(
-            self.config.endpoint,
-            headers=self._headers(),
-            json=self._payload(frame, prompt),
-            timeout=self.config.timeout_s,
-        )
-        response.raise_for_status()
-        latency_ms = (time.perf_counter() - start) * 1000
-        return self._parse_response(frame, response.json(), latency_ms)
-
-
-class NvidiaNimAdapter(NvidiaHttpAdapter):
-    provider = "nvidia_nim"
-
-
-class NvidiaVssAdapter(NvidiaHttpAdapter):
-    provider = "nvidia_vss"
-
-
-class NvidiaCosmosAdapter(NvidiaHttpAdapter):
-    provider = "nvidia_cosmos_world_model"
-
-    def _media_content(self, frame: InferenceFrame) -> list[dict[str, Any]]:
-        if frame.frame_bytes:
-            encoded = base64.b64encode(frame.frame_bytes).decode("ascii")
-            return [
-                {
-                    "type": "image_url",
-                    "image_url": {"url": f"data:image/jpeg;base64,{encoded}"},
-                }
-            ]
-        video_url = frame.metadata.get("video_url")
-        if video_url:
-            return [{"type": "video_url", "video_url": {"url": video_url}}]
-        return []
-
-    def _payload(self, frame: InferenceFrame, prompt: str = "") -> dict[str, Any]:
-        content = self._media_content(frame)
-        content.append(
-            {
-                "type": "text",
-                "text": prompt or (
-                    "Analyze this live smart-intersection camera frame or stream for "
-                    "urban edge vision analytics. Return only JSON in the <answer> block "
-                    "using this schema: "
-                    '{"detections":[{"label":"car|truck|motorcycle|bus|pedestrian|'
-                    'cyclist|unknown","confidence":0.0,"bbox":[x1,y1,x2,y2],'
-                    '"summary":"..."}]}. '
-                    "Use normalized pixel coordinates if exact boxes are unavailable. "
-                    f"Frame metadata: camera_id={frame.camera_id}, frame_id={frame.frame_id}. "
-                    "Answer in this format: <think>short reasoning</think>"
-                    "<answer>{your JSON}</answer>."
-                ),
-            }
-        )
-        return {
-            "model": self.config.model or "nvidia/cosmos-reason2-2b",
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "You are NVIDIA Cosmos Reason2 analyzing traffic camera evidence.",
-                },
-                {"role": "user", "content": content},
-            ],
-            "temperature": 0.2,
-            "top_p": 0.3,
-            "max_tokens": 2048,
-            "stream": False,
-        }
-
-    def infer(self, frame: InferenceFrame, prompt: str = "") -> InferenceFrame:
-        start = time.perf_counter()
-        response = httpx.post(
-            f"{self.config.endpoint.rstrip('/')}/chat/completions",
-            headers=self._headers(),
-            json=self._payload(frame, prompt),
-            timeout=self.config.timeout_s,
-        )
-        response.raise_for_status()
-        latency_ms = (time.perf_counter() - start) * 1000
-        raw = response.json()
-        parsed = _parse_cosmos_response(raw)
-        inferred = self._parse_response(frame, parsed, latency_ms)
-        return inferred.model_copy(
-            update={
-                "metadata": {
-                    **inferred.metadata,
-                    "vlm_response": _extract_assistant_text(raw),
-                    "vlm_model": self.config.model or "nvidia/Cosmos-Reason2-2B",
-                }
-            }
-        )
-
-
-# ── Local vision adapters (Ollama / vLLM) ────────────────────────────────────
-#
-# Both Ollama and vLLM expose an OpenAI-compatible /v1/chat/completions API.
-# No credentials required — they run locally without auth.
-#
-# Ollama default: http://localhost:11434
-# vLLM default:  http://localhost:8000
-#
-# Vision-capable Ollama models (install with `ollama pull <name>`):
-#   moondream  — 1.8B, fastest, good for traffic frames
-#   llava      — 7B,   general-purpose vision
-#   llava-phi3 — 3.8B, balanced
-#   minicpm-v  — 8B,   high accuracy
-#
-# Vision-capable vLLM models (load with `vllm serve <hf-model-id>`):
-#   llava-hf/llava-1.5-7b-hf
-#   Qwen/Qwen2-VL-7B-Instruct
-#   mistralai/Pixtral-12B  (requires GPU)
-
-_VISION_PROMPT = (
-    "You are a traffic camera AI analyzing an intersection frame. "
-    "Detect all vehicles and pedestrians visible. "
-    "Return ONLY valid JSON (no markdown, no explanation) in this exact schema:\n"
-    '{"detections":[{"label":"car|truck|bus|motorcycle|pedestrian|cyclist|unknown",'
-    '"confidence":0.85,"bbox":[x1,y1,x2,y2],"summary":"brief description"}]}\n'
-    "Use pixel coordinates. If nothing is detected return {\"detections\":[]}."
-)
-
-
-class LocalVisionAdapter(DetectionAdapter):
-    """Base adapter for any OpenAI-compatible local vision server (Ollama or vLLM).
-
-    No authentication required — these servers are expected to run locally.
-    Subclasses set `provider` and `default_endpoint`.
-    """
-
-    provider: str = "local"
-    default_endpoint: str = "http://localhost:11434/v1"
-    default_model: str = "llava"
-
-    def __init__(self, endpoint: str | None = None, model: str | None = None) -> None:
-        self.endpoint = (endpoint or self.default_endpoint).rstrip("/")
-        self.model = model or self.default_model
-        self._timeout = 60.0  # vision inference can be slow on CPU
-
-    def _build_payload(self, frame: InferenceFrame, prompt: str = "") -> dict[str, Any]:
-        content: list[dict[str, Any]] = []
-        if frame.frame_bytes:
-            b64 = base64.b64encode(frame.frame_bytes).decode("ascii")
-            content.append({
-                "type": "image_url",
-                "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
-            })
-        content.append({"type": "text", "text": prompt or _VISION_PROMPT})
-        return {
-            "model": self.model,
-            "messages": [{"role": "user", "content": content}],
-            "temperature": 0.1,
-            "max_tokens": 512,
-            "stream": False,
-        }
-
-    def infer(self, frame: InferenceFrame, prompt: str = "") -> InferenceFrame:
-        start = time.perf_counter()
-        try:
-            resp = httpx.post(
-                f"{self.endpoint}/chat/completions",
-                headers={"Content-Type": "application/json"},
-                json=self._build_payload(frame, prompt),
-                timeout=self._timeout,
-            )
-            resp.raise_for_status()
-            raw = resp.json()
-            raw_response = _extract_assistant_text(raw)
-            parsed = _parse_cosmos_response(raw)
-        except Exception:
-            raw_response = ""
-            parsed = {"detections": []}
-        latency_ms = (time.perf_counter() - start) * 1000
-        # Re-use the shared response normaliser from NvidiaHttpAdapter
-        inferred = _normalise_detections(frame, parsed, latency_ms)
-        return inferred.model_copy(
-            update={
-                "metadata": {
-                    **inferred.metadata,
-                    "vlm_response": raw_response,
-                    "vlm_model": self.model,
-                }
-            }
-        )
-
-
 def _normalise_detections(
     frame: InferenceFrame, data: dict[str, Any], latency_ms: float
 ) -> InferenceFrame:
@@ -381,35 +115,13 @@ def _normalise_detections(
                 y=float(box.get("y", 0)),
                 width=float(box.get("width", 0)),
                 height=float(box.get("height", 0)),
-                confidence=float(item.get("confidence", box.get("confidence", 1.0))),
+                confidence=float(item.get("confidence", box.get("confidence", 1.0)) or 0.0),
             ),
             frame_id=frame.frame_id,
             timestamp_ms=frame.timestamp_ms,
             metadata={"provider": "local"},
         ))
     return frame.model_copy(update={"detections": detections, "inference_latency_ms": latency_ms})
-
-
-class OllamaAdapter(LocalVisionAdapter):
-    """Ollama local inference adapter.
-
-    Connects to the Ollama server at http://localhost:11434 (no auth required).
-    Install a vision model first:  ollama pull moondream
-    """
-    provider = "ollama"
-    default_endpoint = "http://localhost:11434/v1"
-    default_model = "moondream"  # smallest/fastest vision model
-
-
-class VllmAdapter(LocalVisionAdapter):
-    """vLLM local inference adapter.
-
-    Connects to a vLLM server (default http://localhost:8000/v1, no auth required).
-    Start vLLM:  vllm serve llava-hf/llava-1.5-7b-hf --port 8000
-    """
-    provider = "vllm"
-    default_endpoint = "http://localhost:8000/v1"
-    default_model = "llava-hf/llava-1.5-7b-hf"
 
 
 def _extract_assistant_text(raw: dict[str, Any]) -> str:
@@ -467,3 +179,176 @@ def _parse_cosmos_response(raw: dict[str, Any]) -> dict[str, Any]:
             item["vehicle_class"] = item["label"]
         normalized.append(item)
     return {"detections": normalized}
+
+
+# ── Unified OpenAI-compatible vision adapter (vLLM / Ollama / NIM) ───────────
+
+DETECTION_LABELS = "car|truck|bus|motorcycle|pedestrian|cyclist|unknown"
+
+
+def detection_prompt(width: int, height: int, focus: str = "") -> str:
+    """Prompt that asks for pixel-space boxes in the image we actually sent."""
+    focus_line = f" Also write one short sentence about: {focus}." if focus else ""
+    return (
+        f"You are analyzing a {width}x{height} traffic camera frame. "
+        "List every vehicle, pedestrian and cyclist you can see. "
+        "Return ONLY JSON (no markdown) with this exact shape:\n"
+        '{"detections":[{"label":"' + DETECTION_LABELS + '",'
+        '"confidence":0.0,"bbox":[x1,y1,x2,y2]}],"summary":"one sentence"}\n'
+        f"bbox values are pixels in the {width}x{height} image, origin top-left. "
+        'If nothing is present return {"detections":[],"summary":"..."}.'
+        + focus_line
+    )
+
+
+class OpenAIVisionAdapter(DetectionAdapter):
+    """Any server with an OpenAI-compatible ``/v1/chat/completions`` that accepts images.
+
+    Covers vLLM (Cosmos-Reason2, Gemma 4), Ollama's ``/v1`` shim and NVIDIA NIM.
+    Errors propagate: the caller decides how to surface an outage. Fabricating
+    an empty detection list on failure is exactly what we must not do.
+    """
+
+    def __init__(
+        self,
+        endpoint: str,
+        model: str,
+        *,
+        api_key: str | None = None,
+        think: bool = False,
+        max_tokens: int = 512,
+        timeout_s: float = 60.0,
+        provider: str = "openai-compatible",
+        temperature: float = 0.1,
+    ) -> None:
+        self.endpoint = endpoint.rstrip("/")
+        self.model = model
+        self.api_key = api_key
+        self.think = think
+        self.max_tokens = max_tokens
+        self.timeout_s = timeout_s
+        self.provider = provider
+        self.temperature = temperature
+        self._client = httpx.Client(timeout=timeout_s)
+
+    def _headers(self) -> dict[str, str]:
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        return headers
+
+    def build_payload(self, frame: InferenceFrame, prompt: str = "") -> dict[str, Any]:
+        content: list[dict[str, Any]] = []
+        if frame.frame_bytes:
+            b64 = base64.b64encode(frame.frame_bytes).decode("ascii")
+            content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
+            })
+        text = prompt or detection_prompt(frame.width, frame.height)
+        if not self.think:
+            # Cosmos-Reason2 / Qwen-style models honour this to skip <think> blocks.
+            text = text + " /no_think"
+        content.append({"type": "text", "text": text})
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": content}],
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "stream": False,
+        }
+        if not self.think:
+            payload["chat_template_kwargs"] = {"enable_thinking": False}
+        return payload
+
+    def infer(self, frame: InferenceFrame, prompt: str = "") -> InferenceFrame:
+        if not frame.frame_bytes:
+            raise ValueError("inference frame has no image bytes")
+        start = time.perf_counter()
+        resp = self._client.post(
+            f"{self.endpoint}/chat/completions",
+            headers=self._headers(),
+            json=self.build_payload(frame, prompt),
+        )
+        resp.raise_for_status()
+        raw = resp.json()
+        latency_ms = (time.perf_counter() - start) * 1000
+        text = _extract_assistant_text(raw)
+        parsed = _parse_cosmos_response(raw)
+        inferred = _normalise_detections(frame, parsed, latency_ms)
+        usage = raw.get("usage") or {}
+        return inferred.model_copy(
+            update={
+                "metadata": {
+                    **inferred.metadata,
+                    "vlm_response": text,
+                    "vlm_model": self.model,
+                    "vlm_summary": _summary_from_text(text),
+                    "prompt_tokens": usage.get("prompt_tokens"),
+                    "completion_tokens": usage.get("completion_tokens"),
+                }
+            }
+        )
+
+
+def _summary_from_text(text: str) -> str | None:
+    candidate = _strip_code_fence(text or "")
+    answer_match = re.search(r"<answer>\s*(.*?)\s*</answer>", candidate, flags=re.DOTALL)
+    if answer_match:
+        candidate = answer_match.group(1)
+    json_match = re.search(r"\{.*\}", candidate, flags=re.DOTALL)
+    if json_match:
+        try:
+            parsed = json.loads(json_match.group(0))
+            summary = parsed.get("summary") if isinstance(parsed, dict) else None
+            if isinstance(summary, str) and summary.strip():
+                return summary.strip()
+        except json.JSONDecodeError:
+            pass
+    # Fall back to the first prose line outside any JSON/think block.
+    prose = re.sub(r"<think>.*?</think>", "", candidate, flags=re.DOTALL)
+    prose = re.sub(r"\{.*\}", "", prose, flags=re.DOTALL).strip()
+    return prose.splitlines()[0][:240] if prose else None
+
+
+def normalize_detections_to_unit(frame: InferenceFrame) -> InferenceFrame:
+    """Rescale bounding boxes to the 0..1 unit square.
+
+    Models disagree on coordinate conventions: Qwen/Cosmos emit pixels of the
+    input image, Gemma emits a 0..1000 grid, and some emit fractions. Decide per
+    frame from the largest coordinate seen.
+    """
+    if not frame.detections:
+        return frame
+    coords: list[float] = []
+    for d in frame.detections:
+        bb = d.bounding_box
+        coords += [bb.x, bb.y, bb.x + bb.width, bb.y + bb.height]
+    peak = max(coords) if coords else 0.0
+    w = float(frame.width or 1)
+    h = float(frame.height or 1)
+    if peak <= 1.0:
+        sx = sy = 1.0
+    elif peak > max(w, h) * 1.05 and peak <= 1000.0:
+        sx = sy = 1 / 1000.0
+    else:
+        sx, sy = 1 / w, 1 / h
+    updated = []
+    for d in frame.detections:
+        bb = d.bounding_box
+        x = min(max(bb.x * sx, 0.0), 1.0)
+        y = min(max(bb.y * sy, 0.0), 1.0)
+        updated.append(
+            d.model_copy(
+                update={
+                    "bounding_box": BoundingBox(
+                        x=x,
+                        y=y,
+                        width=min(max(bb.width * sx, 0.0), 1.0 - x),
+                        height=min(max(bb.height * sy, 0.0), 1.0 - y),
+                        confidence=bb.confidence,
+                    )
+                }
+            )
+        )
+    return frame.model_copy(update={"detections": updated})

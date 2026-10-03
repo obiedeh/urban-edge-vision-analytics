@@ -8,14 +8,13 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from vision.frame_slot import FrameSlot
 from vision.webrtc.track import IncomingVideoTrack
 
 try:  # pragma: no cover - exercised when aiortc is installed
     from aiortc import RTCPeerConnection, RTCSessionDescription
 except ImportError:  # pragma: no cover - tests can inject fakes through dependencies
-    RTCPeerConnection = None  # type: ignore[assignment]
-    RTCSessionDescription = None  # type: ignore[assignment]
+    RTCPeerConnection = None  # type: ignore[assignment,misc]
+    RTCSessionDescription = None  # type: ignore[assignment,misc]
 
 router = APIRouter(tags=["webrtc"])
 
@@ -24,7 +23,7 @@ class WebRTCOffer(BaseModel):
     sdp: str
     type: str
     session_id: str | None = None
-    camera_id: str = "browser-camera"
+    camera_id: str
 
 
 class WebRTCAnswer(BaseModel):
@@ -33,8 +32,8 @@ class WebRTCAnswer(BaseModel):
     type: str
 
 
-def _get_frame_slot() -> FrameSlot:
-    raise RuntimeError("FrameSlot not initialised")  # pragma: no cover
+def _get_runtime() -> Any:
+    raise RuntimeError("EdgeRuntime not initialised")  # pragma: no cover
 
 
 def _get_sessions() -> dict[str, Any]:
@@ -44,11 +43,18 @@ def _get_sessions() -> dict[str, Any]:
 @router.post("/webrtc/offer")
 async def create_webrtc_offer_answer(
     offer: WebRTCOffer,
-    frame_slot: FrameSlot = Depends(_get_frame_slot),
+    runtime: Any = Depends(_get_runtime),
     sessions: dict[str, Any] = Depends(_get_sessions),
 ) -> WebRTCAnswer:
     if RTCPeerConnection is None or RTCSessionDescription is None:
         raise HTTPException(status_code=503, detail="aiortc is not installed")
+
+    push = runtime.push_session(offer.camera_id)
+    if push is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Camera is not an enabled browser_webrtc camera. Add one in Cameras first.",
+        )
 
     peer = RTCPeerConnection()
     session_id = offer.session_id or str(uuid.uuid4())
@@ -58,7 +64,7 @@ async def create_webrtc_offer_answer(
     def on_track(track: Any) -> None:
         if getattr(track, "kind", "") != "video":
             return
-        incoming = IncomingVideoTrack(track, frame_slot, camera_id=offer.camera_id)
+        incoming = IncomingVideoTrack(track, push.push_image)
         task = asyncio.create_task(incoming.consume())
 
         @track.on("ended")
@@ -66,6 +72,7 @@ async def create_webrtc_offer_answer(
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+            push.stats.state = "connecting"
 
     remote = RTCSessionDescription(sdp=offer.sdp, type=offer.type)
     await peer.setRemoteDescription(remote)
@@ -74,6 +81,20 @@ async def create_webrtc_offer_answer(
 
     local = peer.localDescription
     return WebRTCAnswer(session_id=session_id, sdp=local.sdp, type=local.type)
+
+
+@router.delete("/webrtc/{session_id}", status_code=204)
+async def close_webrtc_session(
+    session_id: str, sessions: dict[str, Any] = Depends(_get_sessions)
+) -> None:
+    peer = sessions.pop(session_id, None)
+    if peer is None:
+        return
+    close = getattr(peer, "close", None)
+    if close is not None:
+        result = close()
+        if asyncio.iscoroutine(result):
+            await result
 
 
 async def close_peer_connections(sessions: dict[str, Any]) -> None:
@@ -86,4 +107,3 @@ async def close_peer_connections(sessions: dict[str, Any]) -> None:
         result = close()
         if asyncio.iscoroutine(result):
             await result
-
