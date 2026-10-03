@@ -133,6 +133,8 @@ async def lifespan(app: FastAPI):
 
     await _config_store.init()
     await _import_legacy_camera_config()
+    # A Jetson container started by an earlier API process keeps serving; adopt it.
+    _vllm_manager.adopt_container(os.getenv("URBAN_EDGE_VLLM_CONTAINER", "urban-edge-vllm"))
     if os.getenv("URBAN_EDGE_AUTOSTART", "1") != "0":
         await _edge.start()
 
@@ -143,7 +145,7 @@ async def lifespan(app: FastAPI):
         _telemetry_task = None
     await _edge.stop()
     await close_peer_connections(_webrtc_sessions)
-    _vllm_manager.stop()
+    _vllm_manager.detach()
     _publisher.close()
 
 
