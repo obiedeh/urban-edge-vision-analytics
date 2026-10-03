@@ -26,6 +26,8 @@ class SqliteEventStore:
         self._db_path = db_path
         self._lock = threading.Lock()
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+        # Evidence frames (the inference frame at event time) live next to the DB.
+        self.evidence_dir = Path(db_path).parent / "evidence"
         with self._connect() as db:
             db.executescript(_SCHEMA_PATH.read_text(encoding="utf-8"))
 
@@ -36,10 +38,20 @@ class SqliteEventStore:
 
     # ── Events ────────────────────────────────────────────────────────────────
 
-    def add_event(self, event: TrafficEvent, *, pack_id: str | None = None) -> dict[str, Any]:
+    def add_event(
+        self,
+        event: TrafficEvent,
+        *,
+        pack_id: str | None = None,
+        frame_jpeg: bytes | None = None,
+    ) -> dict[str, Any]:
         payload = event.model_dump(mode="json")
         if pack_id:
             payload["pack_id"] = pack_id
+        if frame_jpeg:
+            self.evidence_dir.mkdir(parents=True, exist_ok=True)
+            (self.evidence_dir / f"{event.event_id}.jpg").write_bytes(frame_jpeg)
+            payload["has_frame"] = True
         review_status = "pending" if event.operator_review_recommended else "none"
         payload["review_status"] = review_status
         with self._lock, self._connect() as db:
@@ -147,6 +159,12 @@ class SqliteEventStore:
         for row in rows:
             counts[row["review_status"]] = int(row["n"])
         return counts
+
+    def frame_path(self, event_id: str) -> Path | None:
+        if "/" in event_id or ".." in event_id:
+            return None
+        path = self.evidence_dir / f"{event_id}.jpg"
+        return path if path.is_file() else None
 
     def delete_camera_events(self, camera_id: str) -> int:
         with self._lock, self._connect() as db:

@@ -460,6 +460,7 @@ export interface TrafficEvent {
   metadata: Record<string, unknown>;
   // pack fields (present depending on pack)
   pack_id?: string;
+  has_frame?: boolean;
   track_id?: string;
   /** packs emit an object; older/ingested events may carry a compass string */
   direction?: string | { compass?: string; heading_deg?: number | null; velocity_px_per_s?: number | null };
@@ -546,7 +547,8 @@ export const api = {
     remove: (id: string) => del(`/cameras/${encodeURIComponent(id)}`),
     setEnabled: (id: string, enabled: boolean) =>
       post<Camera>(`/cameras/${encodeURIComponent(id)}/enabled`, { enabled }),
-    testUnsaved: (body: CameraIn) => post<CameraTestResult>("/cameras/test", body),
+    testUnsaved: (body: CameraIn & { camera_id?: string }) =>
+      post<CameraTestResult>("/cameras/test", body),
     testSaved: (id: string) => post<CameraTestResult>(`/cameras/${encodeURIComponent(id)}/test`, {}),
 
     bindings: (id: string) => get<Binding[]>(`/cameras/${encodeURIComponent(id)}/bindings`),
@@ -649,6 +651,7 @@ export const api = {
     get: (id: string) => get<TrafficEvent>(`/events/${encodeURIComponent(id)}`),
     reviewQueue: (status: "pending" | "confirmed" | "dismissed", limit = 100) =>
       get<ReviewQueue>(`/events/review-queue${qs({ status, limit })}`),
+    frameUrl: (id: string) => `${BASE}/events/${encodeURIComponent(id)}/frame.jpg`,
     review: (id: string, status: "pending" | "confirmed" | "dismissed", note = "") =>
       post<TrafficEvent>(`/events/${encodeURIComponent(id)}/review`, { status, note }),
   },
