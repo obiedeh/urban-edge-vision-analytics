@@ -141,13 +141,29 @@ def test_test_connection_with_camera_id_uses_stored_password(monkeypatch) -> Non
 
     monkeypatch.setattr(cam_routes, "_probe_payload", fake_probe)
     cam = client.post("/cameras", json=TAPO).json()
-    # Edited host + blank password: the stored password is used for the probe.
+    # Same host/port, edited stream quality, blank password: stored password is used.
     r = client.post(
         "/cameras/test",
-        json={**TAPO, "password": "", "host": "192.0.2.99", "camera_id": cam["id"]},
+        json={**TAPO, "password": "", "stream_quality": "main", "camera_id": cam["id"]},
     )
     assert r.status_code == 200 and r.json()["ok"]
-    assert seen["url"] == "rtsp://viewer:s3cret-pass@192.0.2.99:554/stream2"
+    assert seen["url"] == "rtsp://viewer:s3cret-pass@192.0.2.20:554/stream1"
+
+
+def test_test_connection_refuses_stored_password_for_other_host(monkeypatch) -> None:
+    called = []
+    monkeypatch.setattr(cam_routes, "_probe_payload", lambda u, t: called.append(u) or {})
+    cam = client.post("/cameras", json=TAPO).json()
+    for change in ({"host": "192.0.2.99"}, {"port": 8554}):
+        r = client.post(
+            "/cameras/test",
+            json={**TAPO, "password": "", **change, "camera_id": cam["id"]},
+        )
+        assert r.status_code == 200
+        assert r.json()["ok"] is False and "stored password" in r.json()["error"]
+    assert called == []  # the secret never left the store
+    r = client.post("/cameras/test", json={**TAPO, "password": "", "camera_id": "nope"})
+    assert r.json()["ok"] is False and "not saved" in r.json()["error"]
 
 
 def test_event_frame_stored_and_served() -> None:
