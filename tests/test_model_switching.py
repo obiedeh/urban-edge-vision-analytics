@@ -141,3 +141,46 @@ def test_jetson_docker_launch_shape() -> None:
     assert launch.served_model_name == "nvidia/cosmos-reason2-2b"
     assert launch.gpu_memory_utilization == 0.25
     assert "--reasoning-parser" not in launch.extra_args
+
+
+def test_vllm_stop_requires_confirm_and_logs_event() -> None:
+    assert client.post("/inference/vllm/stop", json={}).status_code == 409
+    r = client.post("/inference/vllm/stop", json={"confirm": True, "reason": "test"})
+    assert r.status_code == 200 and r.json()["state"] == "stopped"
+    events = client.get("/runtime/status").json()["server_events"]
+    assert events and events[-1]["kind"] == "stopped by operator"
+    assert events[-1]["reason"] == "test"
+
+
+def test_run_capture_preflight_refuses_mock_or_missing_camera(monkeypatch) -> None:
+    import httpx
+
+    from telemetry import run_capture
+
+    class _Client:
+        def get(self, path: str, **kw):  # noqa: ANN001
+            return client.get(path)
+
+    client.post("/inference/apply", json={"backend": "mock", "model": ""})
+    with pytest.raises(SystemExit, match="not running"):
+        run_capture.preflight(_Client(), "no-such-camera")  # type: ignore[arg-type]
+    cam = client.post("/cameras", json={"name": "Preflight", "profile": "synthetic"}).json()
+    try:
+        # The TestClient app never ran its lifespan, so the session is absent: not streaming.
+        with pytest.raises(SystemExit):
+            run_capture.preflight(_Client(), cam["id"])  # type: ignore[arg-type]
+        # A streaming camera with a mock backend is still refused.
+        monkeypatch.setattr(
+            _Client, "get",
+            lambda self, path, **kw: httpx.Response(
+                200,
+                json={
+                    "cameras": [{"camera_id": cam["id"], "state": "streaming"}],
+                    "model": {"backend": "mock", "model": "", "endpoint": "", "state": "idle"},
+                },
+            ),
+        )
+        with pytest.raises(SystemExit, match="mock"):
+            run_capture.preflight(_Client(), cam["id"])  # type: ignore[arg-type]
+    finally:
+        client.delete(f"/cameras/{cam['id']}")
