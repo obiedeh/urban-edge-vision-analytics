@@ -291,6 +291,7 @@ def capture(
                 1 for e in run_events if e.get("operator_review_recommended")
             ),
         },
+        "ground_truth": _ground_truth_section(client, camera_id, started_iso, report_until=None),
         "tegrastats": tegra.summary() if tegra_ok else None,
         "samples": {
             "status": status_samples,
@@ -316,6 +317,60 @@ def capture(
     return path
 
 
+def _ground_truth_section(
+    client: httpx.Client, camera_id: str, since: str, report_until: str | None
+) -> dict[str, Any]:
+    """Pack output against the operator's known passes (Review → ground truth)."""
+    params: dict[str, str] = {"camera_id": camera_id, "since": since}
+    if report_until:
+        params["until"] = report_until
+    try:
+        annotated = client.get("/events/ground-truth", params=params).json()
+    except httpx.HTTPError:
+        annotated = []
+    rows = []
+    for e in annotated:
+        rows.append(
+            {
+                "event_id": e.get("event_id"),
+                "timestamp": e.get("timestamp"),
+                "pack_id": e.get("pack_id"),
+                "event_type": e.get("event_type"),
+                "ground_truth": e.get("ground_truth"),
+                "review_status": e.get("review_status"),
+                "pack_output": {
+                    k: e.get(k)
+                    for k in (
+                        "decision", "dwell_ms", "min_speed_in_zone", "measured_speed", "unit",
+                        "posted_speed", "exceedance", "vehicle_type", "direction_label",
+                        "crossing", "person_descriptor", "confidence",
+                    )
+                    if e.get(k) is not None
+                },
+            }
+        )
+    return {
+        "note": (
+            "Operator-entered descriptions of known passes, recorded in Review after the run. "
+            "Pack output is listed beside each; no automatic match or accuracy figure is computed."
+        ),
+        "annotated_events": rows,
+        "count": len(rows),
+    }
+
+
+def annotate(api: str, path: Path) -> Path:
+    """Refresh the ground_truth section of an existing artifact from Review annotations."""
+    report = json.loads(path.read_text())
+    client = httpx.Client(base_url=api, timeout=30)
+    report["ground_truth"] = _ground_truth_section(
+        client, report["camera"]["camera_id"], report["started_at"], report.get("finished_at")
+    )
+    report["ground_truth"]["annotated_at"] = datetime.now(UTC).isoformat()
+    path.write_text(json.dumps(report, indent=2) + "\n")
+    return path
+
+
 def _count(events: list[dict[str, Any]], key: str) -> dict[str, int]:
     out: dict[str, int] = {}
     for e in events:
@@ -329,12 +384,24 @@ def main() -> None:
         description="Capture a measured live run from the Urban Edge API."
     )
     parser.add_argument("--api", default="http://127.0.0.1:8080")
-    parser.add_argument("--camera-id", required=True)
+    parser.add_argument(
+        "--annotate",
+        metavar="RUN_JSON",
+        help="Refresh the ground_truth section of an existing artifact from Review and exit",
+    )
+    parser.add_argument("--camera-id")
     parser.add_argument("--duration", type=float, default=120.0)
-    parser.add_argument("--name", required=True, help="artifact name, e.g. thor-tapo-cosmos2b")
+    parser.add_argument("--name", help="artifact name, e.g. thor-tapo-cosmos2b")
     parser.add_argument("--notes", default="")
     parser.add_argument("--out", default="artifacts/runs")
     args = parser.parse_args()
+    if args.annotate:
+        out = annotate(args.api, Path(args.annotate))
+        gt = json.loads(out.read_text())["ground_truth"]
+        print(f"updated {out}: {gt['count']} annotated events")
+        return
+    if not args.camera_id or not args.name:
+        parser.error("--camera-id and --name are required to capture a run")
     path = capture(
         args.api, args.camera_id, args.duration, Path(args.out) / args.name, args.name, args.notes
     )

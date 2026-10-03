@@ -4,11 +4,13 @@ from .base import Pack, PackId
 from .moving_object import MovingObjectPack
 from .speed_violation import SpeedViolationPack
 from .stop_sign import StopSignPack
+from .vehicle_count import VehicleCountPack
 
 _REGISTRY: dict[PackId, Pack] = {
     PackId.moving_object: MovingObjectPack(),  # type: ignore[dict-item]
     PackId.speed_violation: SpeedViolationPack(),  # type: ignore[dict-item]
     PackId.stop_sign: StopSignPack(),  # type: ignore[dict-item]
+    PackId.vehicle_count: VehicleCountPack(),  # type: ignore[dict-item]
 }
 
 

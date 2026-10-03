@@ -16,6 +16,7 @@ class PackId(StrEnum):
     moving_object = "moving_object"
     speed_violation = "speed_violation"
     stop_sign = "stop_sign"
+    vehicle_count = "vehicle_count"
 
 
 @dataclass
