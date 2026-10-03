@@ -124,18 +124,24 @@ class VllmServerManager:
         if not model_dir.exists():
             raise FileNotFoundError(f"Model directory {model_dir} does not exist.")
         with self._lock:
-            if self._proc is not None and self._proc.poll() is None:
+            if self._launcher == "docker" and _container_running(launch.container_name):
                 if self._model == launch.served_model_name and self._endpoint == selected_endpoint:
                     return self.status()
                 self._stop_locked()
+            elif self._proc is not None and self._proc.poll() is None:
+                self._stop_locked()
             # Remove a stale container with the same name (exited earlier run).
-            subprocess.run([docker, "rm", "-f", launch.container_name], capture_output=True)
+            subprocess.run(
+                [docker, "rm", "-f", launch.container_name], capture_output=True, check=False
+            )
             cache_dir = Path(os.path.expanduser(launch.cache_dir))
             cache_dir.mkdir(parents=True, exist_ok=True)
             mount_point = f"/models/{model_dir.name}"
             args = list(launch.extra_args)
+            # Detached: the model server may be shared with another app on the
+            # device and must outlive an API restart (see detach()).
             command = [
-                docker, "run", "--rm", "--name", launch.container_name,
+                docker, "run", "-d", "--rm", "--name", launch.container_name,
                 "--runtime", "nvidia", "--network", "host", "--ipc", "host",
                 "-v", f"{model_dir}:{mount_point}",
                 "-v", f"{cache_dir}:/root/.cache/vllm",
@@ -148,12 +154,53 @@ class VllmServerManager:
                 "--max-model-len", str(launch.max_model_len),
                 *args,
             ]
+            launched = subprocess.run(command, capture_output=True, text=True, check=False)
+            if launched.returncode != 0:
+                raise RuntimeError(f"docker run failed: {launched.stderr.strip()[:300]}")
             env = {**os.environ, "PYTHONUNBUFFERED": "1"}
             self._launch(
-                command, env, launch.served_model_name, selected_endpoint, "docker", args,
-                container_name=launch.container_name,
+                [docker, "logs", "-f", launch.container_name], env, launch.served_model_name,
+                selected_endpoint, "docker", args, container_name=launch.container_name,
             )
+            self._log_tail.insert(0, " ".join(command))
             return self.status()
+
+    def adopt_container(self, container_name: str, endpoint: str | None = None) -> bool:
+        """Adopt a running container launched by an earlier API process."""
+        docker = shutil.which("docker")
+        if not docker or not _container_running(container_name):
+            return False
+        probe = subprocess.run(
+            [docker, "inspect", "--format", "{{join .Config.Cmd \" \"}}", container_name],
+            capture_output=True, text=True, check=False,
+        )
+        args = probe.stdout.split()
+        model = _arg_after(args, "--served-model-name") or "unknown"
+        port = _arg_after(args, "--port") or "8000"
+        with self._lock:
+            self._proc = subprocess.Popen(
+                [docker, "logs", "-f", "--tail", "50", container_name],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
+            )
+            self._model = model
+            self._endpoint = parse_local_vllm_endpoint(endpoint or f"http://localhost:{port}")
+            self._started_at = time.time()
+            self._launcher = "docker"
+            self._container_name = container_name
+            self._reasoning_parser = _reasoning_parser_from_args(args)
+            self._log_tail = [f"adopted running container {container_name}"]
+            threading.Thread(target=self._drain_stdout, daemon=True).start()
+        return True
+
+    def detach(self) -> None:
+        """API shutdown: a docker server keeps running; a binary child is stopped."""
+        with self._lock:
+            if self._launcher == "docker":
+                if self._proc is not None and self._proc.poll() is None:
+                    self._proc.terminate()
+                self._proc = None
+                return
+            self._stop_locked()
 
     def _launch(
         self,
@@ -198,6 +245,18 @@ class VllmServerManager:
                 "reasoning_parser": self._reasoning_parser,
                 "log_tail": list(self._log_tail[-MAX_LOG_LINES:]),
             }
+            if self._launcher == "docker" and self._container_name:
+                up = _container_running(self._container_name)
+                return {
+                    **base,
+                    "state": "starting" if up else ("stopped" if self._proc is None else "failed"),
+                    "pid": self._proc.pid if self._proc else None,
+                    "uptime_seconds": (
+                        round(time.time() - self._started_at, 1)
+                        if up and self._started_at is not None else None
+                    ),
+                    "exit_code": None if up else 1,
+                }
             if self._proc is None:
                 return {
                     **base, "state": "stopped", "pid": None,
@@ -221,13 +280,15 @@ class VllmServerManager:
             }
 
     def _stop_locked(self) -> None:
+        if self._launcher == "docker" and self._container_name and shutil.which("docker"):
+            if _container_running(self._container_name):
+                subprocess.run(
+                    ["docker", "stop", "-t", "20", self._container_name],
+                    capture_output=True, check=False,
+                )
         if self._proc is None:
             return
         if self._proc.poll() is None:
-            if self._launcher == "docker" and self._container_name and shutil.which("docker"):
-                subprocess.run(
-                    ["docker", "stop", "-t", "20", self._container_name], capture_output=True
-                )
             self._proc.terminate()
             try:
                 self._proc.wait(timeout=25)
@@ -250,6 +311,27 @@ class VllmServerManager:
                 self._log_tail.append(clean)
                 if len(self._log_tail) > MAX_LOG_LINES:
                     del self._log_tail[: len(self._log_tail) - MAX_LOG_LINES]
+
+
+def _container_running(name: str | None) -> bool:
+    docker = shutil.which("docker")
+    if not docker or not name:
+        return False
+    probe = subprocess.run(
+        [docker, "inspect", "--format", "{{.State.Running}}", name],
+        capture_output=True, text=True, check=False,
+    )
+    return probe.returncode == 0 and probe.stdout.strip() == "true"
+
+
+def _arg_after(args: Sequence[str], flag: str) -> str | None:
+    args = list(args)
+    for i, arg in enumerate(args):
+        if arg == flag and i + 1 < len(args):
+            return args[i + 1]
+        if arg.startswith(flag + "="):
+            return arg.split("=", 1)[1]
+    return None
 
 
 def _reasoning_parser_from_args(args: Sequence[str]) -> str | None:
