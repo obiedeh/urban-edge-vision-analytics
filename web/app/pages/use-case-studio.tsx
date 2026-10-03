@@ -30,6 +30,35 @@ function Section({ title, children, defaultOpen = true, badge }: { title: string
 /** UI binding = server binding + enabled flag (server only stores enabled ones). */
 interface UiBinding extends Binding { enabled: boolean }
 
+/** vehicle_count binding parameters edited in the "Count line" zone-editor mode. */
+interface CountConfig {
+  count_line: Point[];
+  label_a_to_b: string;
+  label_b_to_a: string;
+  classes: string[];
+  min_observations: number;
+}
+const COUNT_CLASSES = ["car", "truck", "bus", "motorcycle"];
+const DEFAULT_COUNT: CountConfig = { count_line: [], label_a_to_b: "", label_b_to_a: "", classes: [...COUNT_CLASSES], min_observations: 2 };
+
+function countFromParams(p: Record<string, unknown> | undefined): CountConfig {
+  const line = Array.isArray(p?.count_line) ? (p!.count_line as Point[]) : [];
+  return {
+    count_line: line,
+    label_a_to_b: typeof p?.label_a_to_b === "string" ? p.label_a_to_b : "",
+    label_b_to_a: typeof p?.label_b_to_a === "string" ? p.label_b_to_a : "",
+    classes: Array.isArray(p?.classes) ? (p!.classes as string[]) : [...COUNT_CLASSES],
+    min_observations: typeof p?.min_observations === "number" ? p.min_observations : 2,
+  };
+}
+/** Blank labels are omitted so the pack's defaults ("a_to_b" / "b_to_a") apply. */
+function countToParams(c: CountConfig): Record<string, unknown> {
+  const out: Record<string, unknown> = { count_line: c.count_line, classes: c.classes, min_observations: c.min_observations };
+  if (c.label_a_to_b.trim()) out.label_a_to_b = c.label_a_to_b.trim();
+  if (c.label_b_to_a.trim()) out.label_b_to_a = c.label_b_to_a.trim();
+  return out;
+}
+
 function bindingsErrorMessage(e: unknown): string {
   if (e instanceof ApiError) {
     const detail = e.detail?.detail ?? e.detail;
@@ -40,6 +69,7 @@ function bindingsErrorMessage(e: unknown): string {
       const prereq = d?.prerequisite as string | undefined;
       if (prereq === "speed_calibration") return "Speed Violation needs a saved speed calibration (gate A, gate B, distance) for this camera first. Draw it in the zone editor below and save.";
       if (prereq === "stop_zone") return "Stop Sign needs a saved stop zone for this camera first. Draw it in the zone editor below and save.";
+      if (prereq === "count_line") return "Vehicle Count needs a two-point count line (A→B). Draw it in the zone editor below (Count line mode) and save bindings again.";
       return (d?.message as string) || "A prerequisite is missing for one of the selected packs.";
     }
     if (code === "invalid_report_interval") return "Report interval must be at least 2 seconds.";
@@ -52,12 +82,14 @@ function toUi(rows: Binding[]): UiBinding[] {
 }
 
 function BindingsSection({
-  cameraId, packs, movingZone, onLoaded, onChange,
+  cameraId, packs, movingZone, count, onLoaded, onChange,
 }: {
   cameraId: string;
   packs: UseCasePack[];
   /** moving_object zone drawn in the editor (saved into binding.parameters.zone) */
   movingZone: Point[];
+  /** vehicle_count line + labels drawn/typed in the editor (saved as the binding's parameters) */
+  count: CountConfig;
   /** server-confirmed bindings (initial load and after save) */
   onLoaded: (b: UiBinding[]) => void;
   /** unsaved toggles / edits */
@@ -94,6 +126,7 @@ function BindingsSection({
       const active = bindings.filter((b) => b.enabled).map((b) => {
         const params = { ...b.parameters };
         if (b.pack_id === "moving_object") params.zone = movingZone;
+        if (b.pack_id === "vehicle_count") { delete params.label_a_to_b; delete params.label_b_to_a; Object.assign(params, countToParams(count)); }
         return { pack_id: b.pack_id, parameters: params, report_interval_seconds: b.report_interval_seconds };
       });
       await api.cameras.putBindings(cameraId, active);
@@ -137,6 +170,15 @@ function BindingsSection({
           </p>
         </div>
       )}
+      {bindings.some((b) => b.pack_id === "vehicle_count" && b.enabled) && (
+        <div className="rounded border border-border bg-secondary/10 px-3 py-3 space-y-1">
+          <p className="text-xs font-medium text-foreground">Vehicle Count parameters</p>
+          <p className="text-[10px] text-muted-foreground/70">
+            Count line: {count.count_line.length === 2 ? `A (${count.count_line[0][0]}, ${count.count_line[0][1]}) → B (${count.count_line[1][0]}, ${count.count_line[1][1]})` : "not drawn — required. Use Count line mode in the zone editor below."}
+            {" · "}classes {count.classes.join(", ") || "none"} · labels {count.label_a_to_b.trim() || "a_to_b"} / {count.label_b_to_a.trim() || "b_to_a"} · min obs {count.min_observations}
+          </p>
+        </div>
+      )}
       <div className="flex items-center gap-3 flex-wrap">
         <button onClick={save} disabled={saving} className={btnPrimary}>{saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />} Save bindings</button>
         {msg && <StatusMsg kind={msg.kind} text={msg.text} />}
@@ -147,16 +189,19 @@ function BindingsSection({
 
 // ── Zone editor ───────────────────────────────────────────────────────────────
 
-type Mode = "stop" | "speed" | "moving";
-const COLORS = { stop: "#ef4444", gateA: "#38bdf8", gateB: "#a78bfa", moving: "#34d399" };
+type Mode = "stop" | "speed" | "moving" | "count";
+const COLORS = { stop: "#ef4444", gateA: "#38bdf8", gateB: "#a78bfa", moving: "#34d399", count: "#fbbf24" };
 
 function ZoneEditorSection({
-  cameraId, movingZone, setMovingZone, movingEnabled,
+  cameraId, movingZone, setMovingZone, movingEnabled, count, setCount, countEnabled,
 }: {
   cameraId: string;
   movingZone: Point[];
   setMovingZone: (p: Point[]) => void;
   movingEnabled: boolean;
+  count: CountConfig;
+  setCount: (c: CountConfig) => void;
+  countEnabled: boolean;
 }) {
   const [mode, setMode] = useState<Mode>("stop");
   const [activeId, setActiveId] = useState<string>("stop");
@@ -202,20 +247,22 @@ function ZoneEditorSection({
     return () => { dead = true; };
   }, [cameraId]);
 
-  useEffect(() => { setActiveId(mode === "stop" ? "stop" : mode === "speed" ? "gateA" : "moving"); }, [mode]);
+  useEffect(() => { setActiveId(mode === "stop" ? "stop" : mode === "speed" ? "gateA" : mode === "moving" ? "moving" : "count"); }, [mode]);
 
   const shapes: Shape[] = useMemo(() => [
     { id: "stop", label: "Stop zone", points: stopPoly, color: COLORS.stop, kind: "polygon" },
     { id: "gateA", label: "Gate A", points: gateA, color: COLORS.gateA, kind: gateA.length >= 3 ? "polygon" : "line" },
     { id: "gateB", label: "Gate B", points: gateB, color: COLORS.gateB, kind: gateB.length >= 3 ? "polygon" : "line" },
     { id: "moving", label: "Moving-object zone", points: movingZone, color: COLORS.moving, kind: "polygon" },
-  ], [stopPoly, gateA, gateB, movingZone]);
+    { id: "count", label: "Count line", points: count.count_line, color: COLORS.count, kind: "arrow", maxPoints: 2, pointLabels: ["A", "B"] },
+  ], [stopPoly, gateA, gateB, movingZone, count.count_line]);
 
   function onShapeChange(id: string, pts: Point[]) {
     if (id === "stop") { setStopPoly(pts); setStopMsg(null); }
     else if (id === "gateA") { setGateA(pts); setSpeedMsg(null); }
     else if (id === "gateB") { setGateB(pts); setSpeedMsg(null); }
     else if (id === "moving") setMovingZone(pts);
+    else if (id === "count") setCount({ ...count, count_line: pts.slice(0, 2) });
   }
 
   async function saveStop() {
@@ -253,6 +300,7 @@ function ZoneEditorSection({
         <ModeBtn m="stop" label="Stop zone" color={COLORS.stop} saved={hasStop} />
         <ModeBtn m="speed" label="Speed gates" color={COLORS.gateA} saved={hasSpeed} />
         <ModeBtn m="moving" label="Moving-object zone" color={COLORS.moving} saved={movingZone.length >= 3} />
+        <ModeBtn m="count" label="Count line" color={COLORS.count} saved={count.count_line.length === 2} />
         <span className="text-[10px] text-muted-foreground ml-auto">All coordinates normalized 0..1 relative to the frame.</span>
       </div>
 
@@ -322,6 +370,37 @@ function ZoneEditorSection({
               <PointList points={movingZone} onChange={setMovingZone} color={COLORS.moving} />
             </>
           )}
+
+          {mode === "count" && (
+            <>
+              <p className="text-muted-foreground">Exactly two points, drawn <b>A → B</b> across the lane. Vehicles crossing it are counted by class and direction. Stored as the <code>count_line</code> parameter of the vehicle_count binding — save with <b>Save bindings</b> above.</p>
+              {!countEnabled && <StatusMsg kind="warn" text="Vehicle Count pack is not enabled for this camera; enable it above so the line is saved with its binding." />}
+              {countEnabled && count.count_line.length < 2 && <StatusMsg kind="warn" text="Place two points (A then B) — the binding cannot be saved without them." />}
+              <PointList points={count.count_line} onChange={(p) => onShapeChange("count", p)} color={COLORS.count} />
+              <div className="grid grid-cols-2 gap-2">
+                <label className="space-y-1 text-muted-foreground">Label A → B
+                  <input value={count.label_a_to_b} onChange={(e) => setCount({ ...count, label_a_to_b: e.target.value })} className={inputCls} placeholder="northbound" />
+                </label>
+                <label className="space-y-1 text-muted-foreground">Label B → A
+                  <input value={count.label_b_to_a} onChange={(e) => setCount({ ...count, label_b_to_a: e.target.value })} className={inputCls} placeholder="southbound" />
+                </label>
+              </div>
+              <div className="space-y-1 text-muted-foreground">
+                <p>Classes counted</p>
+                <div className="flex items-center gap-3 flex-wrap">
+                  {COUNT_CLASSES.map((c) => (
+                    <label key={c} className="flex items-center gap-1.5">
+                      <input type="checkbox" checked={count.classes.includes(c)} className="rounded border-input bg-background"
+                        onChange={(e) => setCount({ ...count, classes: e.target.checked ? [...count.classes.filter((x) => x !== c), c] : count.classes.filter((x) => x !== c) })} /> {c}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <label className="block space-y-1 text-muted-foreground">Min observations before counting
+                <input type="number" min={1} value={count.min_observations} onChange={(e) => setCount({ ...count, min_observations: Math.max(1, parseInt(e.target.value) || 1) })} className={cn(inputCls, "w-24")} />
+              </label>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -339,6 +418,8 @@ export function UseCaseStudio() {
   const selectedId = params.get("camera_id");
   const [movingZone, setMovingZone] = useState<Point[]>([]);
   const [movingEnabled, setMovingEnabled] = useState(false);
+  const [count, setCount] = useState<CountConfig>(DEFAULT_COUNT);
+  const [countEnabled, setCountEnabled] = useState(false);
 
   useEffect(() => {
     Promise.all([api.cameras.list(), api.useCases.list()])
@@ -358,12 +439,16 @@ export function UseCaseStudio() {
     setMovingEnabled(Boolean(moving));
     const zone = moving?.parameters?.zone;
     setMovingZone(Array.isArray(zone) ? (zone as Point[]) : []);
+    const vc = b.find((x) => x.pack_id === "vehicle_count" && x.enabled);
+    setCountEnabled(Boolean(vc));
+    if (vc) setCount(countFromParams(vc.parameters));
   }
   function onBindingsChange(b: UiBinding[]) {
     setMovingEnabled(b.some((x) => x.pack_id === "moving_object" && x.enabled));
+    setCountEnabled(b.some((x) => x.pack_id === "vehicle_count" && x.enabled));
   }
 
-  useEffect(() => { setMovingZone([]); setMovingEnabled(false); }, [selectedId]);
+  useEffect(() => { setMovingZone([]); setMovingEnabled(false); setCount(DEFAULT_COUNT); setCountEnabled(false); }, [selectedId]);
 
   return (
     <div className="p-4 space-y-4">
@@ -391,10 +476,10 @@ export function UseCaseStudio() {
       {selected && (
         <div className="space-y-3">
           <Section title="Use-case packs" badge={<span className="text-[10px] text-muted-foreground font-normal">bindings apply live</span>}>
-            <BindingsSection key={selected.id} cameraId={selected.id} packs={packs} movingZone={movingZone} onLoaded={onBindingsLoaded} onChange={onBindingsChange} />
+            <BindingsSection key={selected.id} cameraId={selected.id} packs={packs} movingZone={movingZone} count={count} onLoaded={onBindingsLoaded} onChange={onBindingsChange} />
           </Section>
-          <Section title="Zone editor" badge={<span className="text-[10px] text-muted-foreground font-normal">stop zone · speed gates · moving-object zone</span>}>
-            <ZoneEditorSection key={selected.id} cameraId={selected.id} movingZone={movingZone} setMovingZone={setMovingZone} movingEnabled={movingEnabled} />
+          <Section title="Zone editor" badge={<span className="text-[10px] text-muted-foreground font-normal">stop zone · speed gates · moving-object zone · count line</span>}>
+            <ZoneEditorSection key={selected.id} cameraId={selected.id} movingZone={movingZone} setMovingZone={setMovingZone} movingEnabled={movingEnabled} count={count} setCount={setCount} countEnabled={countEnabled} />
           </Section>
         </div>
       )}

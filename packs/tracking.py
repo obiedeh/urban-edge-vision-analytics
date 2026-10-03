@@ -104,6 +104,12 @@ class CentroidTracker:
                     if dist > self.distance_threshold:
                         continue
                     score = 0.001 + (self.distance_threshold - dist) / self.distance_threshold * 0.1
+                # Prefer same-class continuations so two vehicles passing each
+                # other at a low sample rate do not swap identities.
+                if track.vehicle_class != det.vehicle_class and VehicleClass.unknown not in (
+                    track.vehicle_class, det.vehicle_class
+                ):
+                    score *= 0.3
                 pairs.append((score, i, track))
         pairs.sort(key=lambda p: p[0], reverse=True)
         assigned_dets: set[int] = set()

@@ -476,16 +476,35 @@ export interface TrafficEvent {
   vehicle_descriptor?: string;
   person_descriptor?: string;
   attributes?: Record<string, unknown>;
+  // vehicle_count pack
+  crossing?: "a_to_b" | "b_to_a" | string;
+  direction_label?: string;
+  counted_at?: string;
   // review
   review_status?: ReviewStatus;
   review_note?: string | null;
   reviewed_at?: string | null;
+  /** operator's description of the known pass behind this event (e.g. "my car, 20 mph") */
+  ground_truth?: string | null;
   [key: string]: unknown;
 }
 
 export interface ReviewQueue {
   counts: { pending: number; confirmed: number; dismissed: number };
   events: TrafficEvent[];
+}
+
+/** GET /cameras/{id}/counts and GET /counts */
+export interface CountSummary {
+  camera_id: string | null;
+  window_hours: number;
+  total: number;
+  all_time_total: number;
+  by_type: Record<string, number>;
+  by_direction: Record<string, number>;
+  by_direction_and_type: Record<string, Record<string, number>>;
+  /** hour is a UTC bucket "YYYY-MM-DDTHH" */
+  hourly: { hour: string; total: number; by_type: Record<string, number>; by_direction: Record<string, number> }[];
 }
 
 export interface Incident {
@@ -573,6 +592,12 @@ export const api = {
         `/cameras/${encodeURIComponent(id)}/speed-calibration`,
         cal
       ),
+    counts: (id: string, hours = 24) =>
+      get<CountSummary>(`/cameras/${encodeURIComponent(id)}/counts${qs({ hours })}`),
+  },
+
+  counts: {
+    all: (hours = 24) => get<CountSummary>(`/counts${qs({ hours })}`),
   },
 
   useCases: {
@@ -652,8 +677,13 @@ export const api = {
     reviewQueue: (status: "pending" | "confirmed" | "dismissed", limit = 100) =>
       get<ReviewQueue>(`/events/review-queue${qs({ status, limit })}`),
     frameUrl: (id: string) => `${BASE}/events/${encodeURIComponent(id)}/frame.jpg`,
-    review: (id: string, status: "pending" | "confirmed" | "dismissed", note = "") =>
-      post<TrafficEvent>(`/events/${encodeURIComponent(id)}/review`, { status, note }),
+    /** ground_truth: omit/undefined keeps the stored value; "" clears it. */
+    review: (id: string, status: "pending" | "confirmed" | "dismissed", note = "", ground_truth?: string | null) =>
+      post<TrafficEvent>(`/events/${encodeURIComponent(id)}/review`, {
+        status, note, ...(ground_truth === undefined ? {} : { ground_truth }),
+      }),
+    groundTruth: (params?: { camera_id?: string; since?: string; until?: string }) =>
+      get<TrafficEvent[]>(`/events/ground-truth${qs({ ...(params ?? {}) })}`),
   },
 
   incidents: {

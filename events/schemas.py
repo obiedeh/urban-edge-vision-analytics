@@ -19,6 +19,7 @@ class EventType(StrEnum):
     person_activity = "person_activity"
     speed_violation = "speed_violation"
     stop_sign_violation = "stop_sign_violation"
+    vehicle_count = "vehicle_count"
 
 
 class Severity(StrEnum):
@@ -108,6 +109,24 @@ class StopSignEvent(TrafficEvent):
     direction: Direction
     track_id: str
     detected_at: datetime
+
+
+# ── Pack 4 — Vehicle Count ────────────────────────────────────────────────────
+
+
+class VehicleCountEvent(TrafficEvent):
+    """One record per tracked vehicle crossing the count line. Not a review item."""
+
+    event_type: Literal[EventType.vehicle_count] = EventType.vehicle_count
+    target_kind: Literal["vehicle"] = "vehicle"
+    vehicle_type: VehicleType
+    # "a_to_b" / "b_to_a" relative to the drawn line, plus the operator's label
+    # for that direction (e.g. northbound) and the compass heading of the track.
+    crossing: Literal["a_to_b", "b_to_a"]
+    direction_label: str
+    direction: Direction
+    track_id: str
+    counted_at: datetime
 
 
 # ── Incident management ───────────────────────────────────────────────────────

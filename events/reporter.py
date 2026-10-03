@@ -11,6 +11,8 @@ _TERMINAL_EVENT_TYPES: set[str] = {
     # Pack 2/3 decision finalize — always emit once
     "speed_violation",
     "stop_sign_violation",
+    # Pack 4: one record per crossing; a track is counted once by the pack itself.
+    "vehicle_count",
 }
 
 
