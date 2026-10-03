@@ -6,6 +6,8 @@ Edge vision analytics for streets and intersections. Network cameras are configu
 
 This is operational analysis with a human in the loop. It is not automated enforcement, and it does not read license plates.
 
+A one-page tour of the system, with screens from the running console, is in [docs/showcase/index.html](docs/showcase/index.html). Download it and open it in a browser.
+
 ---
 
 ## What it does today
