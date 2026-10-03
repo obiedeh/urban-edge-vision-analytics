@@ -210,16 +210,10 @@ export function CameraForm({ profiles, camera, onSaved, onCancel }: Props) {
     if (v) { setError(v); return; }
     setTesting(true); setTest(null); setError(null);
     try {
-      let body = payload();
-      // On edit with an unchanged password the unsaved probe cannot see the stored secret;
-      // use the saved-camera probe instead so the stored credentials are used.
-      if (camera && !form.password && camera.has_password) {
-        setTest(await api.cameras.testSaved(camera.id));
-        setError("Tested the saved configuration (stored password). Save first to test unsaved changes.");
-      } else {
-        body = { ...body, password: form.password };
-        setTest(await api.cameras.testUnsaved(body));
-      }
+      // On edit with the password left blank the server uses the stored (encrypted)
+      // password for this camera_id, so unsaved host/path edits are still probed.
+      const body = { ...payload(), password: form.password, camera_id: camera?.id };
+      setTest(await api.cameras.testUnsaved(body));
     } catch (e) {
       setError(apiErrorMessage(e, "Test failed"));
     } finally { setTesting(false); }

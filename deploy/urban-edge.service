@@ -1,0 +1,25 @@
+# systemd user unit for the Urban Edge API + operator UI.
+#
+#   mkdir -p ~/.config/systemd/user
+#   cp deploy/urban-edge.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now urban-edge
+#   loginctl enable-linger $USER      # keep it running without a login session
+#
+# Config, encrypted credentials and the key live under $HOME (never in the repo).
+[Unit]
+Description=Urban Edge Vision Analytics API and operator UI
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=%h/github/urban-edge-vision-analytics
+Environment=STORE_PATH=%h/.local/share/urban-edge/store.sqlite
+Environment=URBAN_EDGE_SECRET_KEY_FILE=%h/.config/urban-edge/secret.key
+ExecStartPre=/bin/mkdir -p %h/.local/share/urban-edge
+ExecStart=%h/github/urban-edge-vision-analytics/.venv/bin/uvicorn api.main:app --host 0.0.0.0 --port 8080
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target
