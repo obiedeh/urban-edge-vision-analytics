@@ -1,340 +1,168 @@
 # Urban Edge Vision Analytics
 
-Edge vision inference and traffic event observability for smart intersections.
+**Status: Functional. Under active field validation and tuning on live cameras.**
 
-This project turns camera frames, vehicle detections, and flow analytics into structured traffic events that an operator can review. The goal is not automated enforcement. The goal is infrastructure intelligence with human-reviewed incident management.
+Edge vision analytics for streets and intersections. Network cameras are configured in a web UI, video plays live in the browser, a vision-language model inspects frames on its own cadence, and use-case packs turn what the model sees into structured traffic events that an operator reviews.
 
----
-
-## Core Stack
-
-**Implemented:** Python · FastAPI · Pydantic · mock detection adapter · synthetic frame source · flow analytics · Pytest
-
-**Planned / integration path:** OpenCV · ONNX Runtime · TensorRT · RTSP source · Jetson benchmark artifact
-
-<p>
-  <img src="https://img.shields.io/badge/Python-3.x-blue" alt="Python" />
-  <img src="https://img.shields.io/badge/FastAPI-API-009688" alt="FastAPI" />
-  <img src="https://img.shields.io/badge/Pydantic-schemas-E92063" alt="Pydantic" />
-  <img src="https://img.shields.io/badge/OpenCV-integration%20path-5C3EE8" alt="OpenCV integration path" />
-  <img src="https://img.shields.io/badge/ONNX%20Runtime-planned-005CED" alt="ONNX Runtime planned" />
-  <img src="https://img.shields.io/badge/TensorRT-planned-76B900" alt="TensorRT planned" />
-  <img src="https://img.shields.io/badge/Pytest-tested-brightgreen" alt="Pytest" />
-</p>
+This is operational analysis with a human in the loop. It is not automated enforcement, and it does not read license plates.
 
 ---
 
-## Architecture and Evidence
+## What it does today
 
-- [Architecture overview](docs/architecture.md)
-- [System architecture diagram](docs/diagrams/system-architecture.mmd)
-- [Runtime flow diagram](docs/diagrams/runtime-flow.mmd)
-- [Data flow diagram](docs/diagrams/data-flow.mmd)
-- [Deployment view diagram](docs/diagrams/deployment-view.mmd)
-- [Sample outputs](artifacts/sample-outputs/)
-- [Logs](artifacts/logs/)
-- [Reports](artifacts/reports/)
+Every item below is implemented on `main` and covered by the test suite or by code you can read at the linked path. Nothing here is a performance claim; see [Not yet measured](#not-yet-measured).
 
----
+**Camera setup in the UI**
+- Vendor profiles with main and sub stream paths filled in automatically: Tapo, Hikvision, Dahua, Amcrest, Axis, Reolink, UniFi Protect, generic RTSP, HTTP MJPEG, browser webcam (WebRTC), plus a labelled synthetic feed for demos and tests (`vision/camera_profiles.py`).
+- Add, edit, enable, disable and delete cameras without editing files or restarting. Configuration lives in SQLite (`store/config_store.py`).
+- Test connection opens the stream, decodes one frame and returns a thumbnail, or a classified error: unreachable, authentication failed, wrong path, codec, timeout (`vision/probe.py`).
+- Credentials are encrypted at rest with a key file kept outside the repository (`store/secrets.py`). The API never returns a stored password. Stored passwords are only reused for the host and port they were saved for. Credentials are masked in URLs, logs, errors and status payloads (`vision/redaction.py`).
 
-## What Works Now
+**Multiple cameras, packs per camera**
+- Any number of cameras can be saved; each enabled camera runs its own capture and inference loop.
+- Use-case packs are selected per camera, and one camera can run several packs at once. The only combination refused is speed and stop-sign on the same camera, because they need different sight lines (`packs/compatibility.py`).
 
-This repository includes a runnable engineering scaffold:
+**Live video decoupled from inference**
+- Each camera is decoded at its native frame rate into a latest-frame slot and streamed to the browser as MJPEG (`vision/camera_engine.py`, `api/routes/stream.py`).
+- Inference samples that slot on its own interval. The model server is not in the video path: when the model is unavailable the Live page keeps playing and shows "inference unavailable" instead of inventing events (`vision/runtime.py`, `tests/test_runtime.py`).
 
-- Pydantic schemas for inference frames, vehicle detections, traffic events, and incidents
-- Mock detection adapter — seeded, deterministic, zero model dependencies
-- Synthetic frame source for development and testing
-- Sliding flow window analytics: vehicle count, congestion detection, per-class counts
-- Inference latency telemetry with p95/p99 tracking
-- FastAPI backend: event ingestion, incident lifecycle, runtime metrics
-- Operator incident workflow: open → under_review → resolved / dismissed
-- Configs for local dev and Jetson Orin deployment planning, validated by `api/config.py`
-- Optional edge-to-cloud publishing (`cloud/`), off by default
-- Test suite: schemas, flow analytics, event lifecycle, API smoke
+**Model selection by environment, with memory preflight**
+- On first start the app picks a default for the host: Cosmos-Reason2-2B served by vLLM on Jetson AGX Thor, Gemma 4 on a workstation with an RTX 5090 class GPU (`vision/host_capabilities.py`). The operator can change it in the Models page.
+- One adapter talks to any vision endpoint that serves the chat-completions API: vLLM, Ollama or NVIDIA NIM. Backend, endpoint and model are editable and switch live.
+- The model catalog is checked against the host: free VRAM on a discrete GPU, available RAM on Jetson unified memory. Models that will not fit are shown as blocked with the reason.
+- On Jetson the app can launch NVIDIA's vLLM container itself. That container keeps running across API restarts, and stopping it requires an explicit, logged confirmation because it may be shared with another app on the device.
+
+**Use-case packs** (`packs/`)
+- **Stop sign:** a vehicle track entering the drawn stop zone is watched until it leaves, then classified as full stop, rolling stop or no stop from its dwell time and minimum tracked speed in the zone.
+- **Speed between two gates:** speed is computed from the time a track takes to cross gate A then gate B and the real-world distance entered for them. Only measured crossings produce events.
+- **Moving object:** tracked people (or other chosen classes), with direction, optionally limited to a zone.
+- **Vehicle count:** each tracked vehicle is counted once when it crosses the drawn count line, by direction and class (car, truck, bus, motorcycle). Counts are stored in SQLite with per-camera totals and an hourly breakdown. Count records never enter the review queue.
+- Zones, gates and the count line are drawn in the Studio page on a snapshot from the camera. Coordinates are stored normalised, so they survive resolution changes.
+- A simple frame-to-frame tracker gives detections stable ids (`packs/tracking.py`).
+
+**Operator review**
+- Events are stored in SQLite and survive restarts. Events a pack flags for review appear in the Review queue with the frame the model saw at that moment.
+- The operator confirms or dismisses each item and can attach a ground-truth note describing a known pass (for example "my car, full stop"). Run artifacts list pack output beside those notes; no accuracy figure is computed automatically.
+
+**Deployment**
+- A systemd user unit runs the API and UI as a service with a persistent log (`deploy/urban-edge.service`).
+- `telemetry/run_capture.py` records a measured live run from a running instance: video frame rate and drops, inference latency percentiles, events, board power from `tegrastats`. It refuses to start if the model server is not ready, aborts if the server goes down mid-run, and never starts or stops a model server itself.
 
 ---
 
 ## Architecture
 
 ```text
-Camera / Video Source
+ camera (RTSP / HTTP MJPEG / browser webcam)
         |
         v
-  Source Loader  ->  Detection Adapter  ->  Flow Analytics  ->  Event Store
-        |                   |                     |                  |
-   (synthetic,          (Mock / ONNX /       (FlowWindow,       (TrafficEvent,
-    video file,          TensorRT /            congestion,        Incident,
-    RTSP stream)         NIM endpoint)         class counts)      operator review)
-                                                                      |
-                                                                      v
-                                                               FastAPI Backend
-                                                          (events, incidents, metrics)
+ capture thread per camera  ->  latest-frame slot  ->  MJPEG to the Live page
+                                      |
+                                      v  (sampled every inference interval)
+                               vision-language model
+                               (vLLM, Ollama or NIM endpoint)
+                                      |
+                                      v
+                        tracker  ->  packs bound to the camera
+                                      |
+                                      v
+                 SQLite: events, vehicle counts, review status
+                                      |
+                                      v
+             operator UI: Live, Cameras, Models, Studio, Events, Review
 ```
 
-```mermaid
-flowchart LR
-    browser[Browser webcam<br/>native FPS] -->|WebRTC offer/answer| api[FastAPI /webrtc/offer]
-    api --> track[IncomingVideoTrack]
-    track --> slot[FrameSlot<br/>latest frame only]
-    slot --> loop[InferenceLoop<br/>cadence controlled]
-    loop --> adapter[Cosmos via vLLM<br/>or mock in tests]
-    adapter --> result[Structured TrafficEvent<br/>vlm_summary/reasoning/model]
-    result --> sse[GET /live/results SSE]
-    sse --> overlay[Browser overlay]
-```
-
----
-
-## Repository Layout
+Repository layout:
 
 ```text
-api/          FastAPI application and routes
-vision/       Frame schemas, detection adapter interface, source loaders
-events/       Traffic event and incident schemas, event store lifecycle
-analytics/    Flow window analytics, congestion detection, pipeline metrics
-telemetry/    Inference latency metrics, runtime snapshot, telemetry contract
-cloud/        Edge-to-cloud publishers (null, file, IoT Core), envelope contract
-configs/      Local and Jetson JSON configs (incl. cloud section)
-examples/     Sample payloads
-docs/         Architecture and roadmap
-tests/        Unit and smoke tests
+api/          FastAPI application, routes, model server launcher
+vision/       camera profiles, probe, capture sessions, model runtime, redaction
+store/        SQLite config store, event store, secret encryption
+packs/        stop sign, speed, moving object, vehicle count, tracker, geometry
+events/       event and incident schemas
+telemetry/    metrics, run capture
+cloud/        optional edge-to-cloud publishers (off by default)
+web/          operator UI (Vite, React, TypeScript)
+deploy/       systemd unit
+tests/        unit, API and runtime tests
 ```
 
 ---
 
-## Quick Start
-
-Primary target today: Linux local development with the deterministic mock adapter. Jetson Orin is a planned deployment target after ONNX or TensorRT adapters are implemented and benchmarked.
-
-Use the live engine for real-time monitoring; use the `summarize-recording` CLI / `POST /recordings/{id}/summarize` API for after-the-fact VSS analysis. See [docs/live-vlm-engine-brief.md](docs/live-vlm-engine-brief.md) for the engine architecture.
+## Quick start
 
 ```bash
 git clone https://github.com/obiedeh/urban-edge-vision-analytics.git
 cd urban-edge-vision-analytics
-python -m venv .venv
-source .venv/bin/activate
-pip install -e .[dev]
-uvicorn api.main:app --reload --port 8080
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+
+cd web && pnpm install && pnpm build && cd ..
+uvicorn api.main:app --port 8080
 ```
 
-Open:
+Open `http://localhost:8080`, go to Cameras, add a camera, press Test connection, save. Pick or load a model in Models. Draw zones and choose packs in Studio. Watch Live and work the Review queue.
 
-- API health: `http://127.0.0.1:8080/health`
-- OpenAPI docs: `http://127.0.0.1:8080/docs`
-- Inference metrics: `http://127.0.0.1:8080/metrics/inference`
-- Runtime snapshot: `http://127.0.0.1:8080/runtime`
+No camera to hand: add one with the "Synthetic test feed" profile and select the mock backend in Models. The UI labels both as synthetic.
 
-Browser WebRTC live path:
+Settings that are not in the UI are in [`.env.example`](.env.example): where the SQLite store and the encryption key file live. Never commit either.
+
+Run as a service on the device:
 
 ```bash
-uvicorn api.main:app --reload --port 8080
-cd web
-pnpm dev
+mkdir -p ~/.config/systemd/user
+cp deploy/urban-edge.service ~/.config/systemd/user/
+systemctl --user daemon-reload && systemctl --user enable --now urban-edge
 ```
-
-Open `http://127.0.0.1:3000/live`, allow browser camera access, and watch
-the video render directly in the browser while VLM results stream from
-`GET /live/results`. The legacy RTSP FFmpeg reader is still available for
-one release through `urban-edge-live-pipeline --legacy-ffmpeg`.
-
----
-
-## Run This Demo
-
-```bash
-uvicorn api.main:app --reload --port 8080
-python examples/generate_mock_report.py --output examples/mock_inference_report.json
-```
-
-The API exposes the operator-facing event workflow, while the mock report shows deterministic frame-analysis evidence without claiming real-camera accuracy.
-
----
-
-## Docker
-
-```bash
-docker build -t urban-edge-vision .
-docker run -p 8080:8080 urban-edge-vision
-```
-
----
-
-## Traffic Event Model
-
-Events carry:
-
-- camera ID and timestamp
-- event type: `vehicle_detected`, `red_light_violation`, `unsafe_turn`, `congestion_onset`, `congestion_clear`, `wrong_way`
-- severity: `info`, `warning`, `critical`
-- vehicle count and track IDs
-- confidence score
-- operator review recommendation
-- inference latency and metadata
-
-See `examples/sample_event.json`.
-
----
-
-## Detection Adapter Strategy
-
-The live runtime selector exposes NVIDIA Cosmos and Gemma VLM presets. See [docs/live-vlm-engine-brief.md](docs/live-vlm-engine-brief.md) §AD-3.
-
-| Selector | Backend | Use |
-|---|---|---|
-| `cosmos-2b` | vLLM serving `nvidia/Cosmos-Reason2-2B` | Default. Fast, ~200-500ms on RTX 5090. |
-| `cosmos-8b` | vLLM serving `nvidia/Cosmos-Reason2-8B` | Heavy tier. ~1-2s, better reasoning. |
-| `cosmos-3` | NIM/vLLM serving `nvidia/cosmos3-nano-reasoner` | Cosmos 3 Nano reasoner. Fits RTX 5090 class GPUs with headroom. |
-| `gemma-4` | Ollama serving `gemma4:e4b` | Recommended quantized Gemma 4 live starting point. |
-| `gemma-4-vllm` | vLLM serving `google/gemma-4-E4B-it` | Official Gemma 4 E4B Hugging Face checkpoint. |
-| `gemma-4-26b-nvfp4` | vLLM serving `nvidia/Gemma-4-26B-A4B-NVFP4` | Quantized high-quality Gemma 4 target; dedicate most GPU memory. |
-| `vss` | NVIDIA VSS Blueprint endpoint | **Batch-only.** Not in the live UI; used by the `summarize-recording` pipeline. |
-
-OpenAI-compatible chat endpoints are the live-inference path: vLLM/NIM for Cosmos and Ollama or vLLM for Gemma. `MockDetectionAdapter` remains the test default but is not selectable at runtime. `OllamaAdapter` and `NvidiaNimAdapter` classes stay importable for dev/test and local model checks.
-
-The live camera path is split into two layers:
-
-- **Ingress:** Browser-side WebRTC (or RTSP camera profile bridged through the server).
-- **Inference:** one selected Cosmos or Gemma VLM served via vLLM/NIM. Recorded video is summarized by VSS in a separate batch pipeline.
-
-The camera transport is independent from the model stack.
-
----
-
-## Deployment Paths
-
-Local dev (mock adapter):
-
-```bash
-uvicorn api.main:app --reload --port 8080
-```
-
-Real camera feed validation:
-
-```bash
-cp configs/camera.local.example.json configs/camera.local.json
-export CAMERA_USERNAME='camera-user'
-export CAMERA_PASSWORD='camera-password'
-.venv/bin/python -m vision.camera_profiles --config configs/camera.local.json --dry-run
-.venv/bin/python -m vision.camera_profiles --config configs/camera.local.json --ffplay
-```
-
-Supported `model_type` values are `generic_rtsp`, `hikvision`, `dahua`, `amcrest`, `axis`, `reolink`, `tapo`, `unifi_protect`, and `http_mjpeg`. Use `path` in the JSON config when a camera requires a vendor-specific RTSP path that is not covered by the profile defaults.
-
-To validate camera settings during API startup:
-
-```bash
-export CAMERA_CONFIG=configs/camera.local.json
-export CAMERA_REQUIRE_FFPLAY=1
-uvicorn api.main:app --reload --port 8080
-```
-
-Run the live Tapo stream through the current mock vision pipeline and post events to the API:
-
-```bash
-export CAMERA_USERNAME='camera-user'
-export CAMERA_PASSWORD='camera-password'
-.venv/bin/python -m vision.live_pipeline \
-  --config configs/camera.local.json \
-  --api-url http://127.0.0.1:8080 \
-  --sample-fps 1 \
-  --frames 10
-```
-
-The worker uses the same Tapo RTSP URL validated by `ffplay`, samples frames with FFmpeg, runs the active `DetectionAdapter`, and posts resulting events to `/events`.
-
-Jetson Orin target path after ONNX adapter implementation:
-
-```bash
-DETECTION_ADAPTER=onnx uvicorn api.main:app --host 0.0.0.0 --port 8080
-```
-
-Do not treat the Jetson command as validated until a real ONNX adapter, model file, and benchmark artifact are committed.
 
 ---
 
 ## Tests
 
 ```bash
-PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest
-```
-
-For the Linux validation path used by CI:
-
-```bash
 make install-dev
-make verify
+make verify        # ruff, mypy, pytest
+cd web && pnpm build
 ```
 
-The current CI gate runs Ruff linting, type checks, and tests on Ubuntu.
-
-## Mock Evidence Artifact
-
-Generate deterministic synthetic evidence from the mock detection adapter:
-
-```bash
-python examples/generate_mock_report.py --output examples/mock_inference_report.json
-```
-
-The generated report is committed at `examples/mock_inference_report.json`. It proves the current mock-frame pipeline executes and summarizes detections, class counts, and congestion windows. It does not claim real camera accuracy, Jetson latency, or automated enforcement readiness.
-
-For the reviewer-facing deliverables checklist, see [PORTFOLIO_DELIVERABLES.md](PORTFOLIO_DELIVERABLES.md).
+CI runs lint, type checks, the Python tests and the web build on every push to `main`. The tests cover camera create, update, delete and enable; the connection probe and its error classes; credential encryption and redaction; model switching and the memory preflight; the tracker and all four packs, including double-count prevention and direction for the vehicle count; several packs on one camera; the review queue and ground-truth notes; and an end-to-end runtime test in which video keeps flowing while the model is down.
 
 ---
 
-## Edge-to-cloud (AWS)
+## Not yet measured
 
-Jetson nodes will publish events, incidents and telemetry to AWS IoT Core;
-raw video stays on the device. Publishing is optional, config-driven and off
-by default (`cloud.enabled: false`), so the edge app runs with no network and
-no AWS account. Design, contract and an offline demo: [docs/cloud-architecture.md](docs/cloud-architecture.md).
+The system runs end to end, but none of the following has a committed measurement yet. Treat any number you see elsewhere as unverified until an artifact under `artifacts/` backs it.
 
-| Phase | Scope | Status |
-|---|---|---|
-| 0 | `cloud/` publisher interface, `NullPublisher` + `FilePublisher` (JSONL), envelope `{schema_version, thing_name, sent_at, kind, payload}` serialized from the Pydantic schemas, wired behind `cloud.enabled` | Done |
-| 1 | `IotCorePublisher` (MQTT5, QoS 1, bounded queue, retry/backoff, background thread, fake-client tests), `scripts/provision_device.sh`, optional extra `.[cloud]` | Skeleton done; CDK `infra/iot_stack.py` and a live Jetson run pending |
-| 2 | IoT rules to Timestream for InfluxDB, DynamoDB incidents, Firehose to S3, SNS alerts, Athena | Planned |
-| 3 | Greengrass v2 component recipes, stream manager store-and-forward | Planned |
-| 4 | Managed Grafana dashboard, FastAPI on ECS Fargate behind API Gateway + Cognito | Planned |
-| 5 | Fleet indexing, Device Defender, CloudWatch alarms | Optional |
+- **Live-camera latency and power on the Jetson AGX Thor.** No live-camera run has been committed. Per-frame inference latency, video frame rate under load and board power are unknown.
+- **Pack accuracy against known passes.** Stop-sign, speed, moving-object and vehicle-count output has not been compared with ground truth. The Review page can record known passes; the comparison has not been run.
+- **Speed calibration error.** The two-gate speed depends on the entered distance, the gate placement and the inference interval. Its error has not been characterised.
+- **Long-run stability.** Behaviour over hours or days (reconnects, memory, store growth) has not been measured.
 
-Offline demo in one line (then `tail -f /tmp/urban-edge-cloud.jsonl` and post to `/events`):
-
-```bash
-URBAN_EDGE_CLOUD_ENABLED=true URBAN_EDGE_CLOUD_PUBLISHER=file \
-URBAN_EDGE_CLOUD_FILE_PATH=/tmp/urban-edge-cloud.jsonl uvicorn api.main:app --port 8080
-```
+Also not established: detection quality of the vision-language models on real street scenes, behaviour at night or in bad weather, and tracker identity stability in dense traffic.
 
 ---
 
-## Production Roadmap
+## Planned upgrades
 
-1. Add ONNX Runtime adapter (YOLOv8n / RT-DETR-nano) and video file source
-2. Benchmark detection latency and throughput on CPU vs GPU
-3. Add TensorRT adapter and validate on Jetson Orin hardware
-4. Add RTSP source for live camera ingestion
-5. Add evidence packaging (frame crops, detection overlays, metadata bundle)
-6. Add multimodal incident summarization via local VLM or NVIDIA NIM
-7. Add Prometheus metrics endpoint and Grafana deployment profile
-8. Add operator review UI or REST-driven review workflow
+Not built yet:
 
----
+- Live-camera evidence runs on the Thor, committed under `artifacts/`
+- Ground-truth validation of the speed and stop-sign packs
+- Recorded-video summarization (NVIDIA VSS)
+- AWS edge-to-cloud sync. A publisher interface and a local file publisher exist and are tested, and an IoT Core publisher is implemented against a fake client only; nothing has been run against AWS. Design notes: [docs/cloud-architecture.md](docs/cloud-architecture.md)
+- Wrong-way detection
+- Illegal parking
+- Pedestrian counts and yield
+- Queue length
+- Near-miss detection
+- Red-light running
 
-## Positioning
-
-This project supports a broader engineering focus around:
-
-- Edge AI inference
-- Physical AI observability
-- smart-city traffic analytics
-- multimodal AI systems
-- Jetson Orin deployment
-- operator-facing infrastructure intelligence
+There will be no license plate reading.
 
 ---
 
-## Important Note
+## Scope
 
-This project is for operational analysis and infrastructure research.
+This project is for operational analysis and infrastructure research with operator review. It is not intended for autonomous legal enforcement or automated ticketing.
 
-It is not intended for autonomous legal enforcement or fully automated ticketing systems.
-All critical events are flagged for operator review.
+License: Apache 2.0.
