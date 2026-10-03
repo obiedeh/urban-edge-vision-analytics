@@ -19,6 +19,7 @@ import io
 import logging
 import time
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 from PIL import Image
@@ -72,6 +73,10 @@ class EdgeRuntime:
         self._lock = asyncio.Lock()
         self.host = detect_host()
         self.started_at: float | None = None
+        # Model-server events (operator starts/stops, outages) with timestamps,
+        # exported in /runtime/status and copied into run artifacts.
+        self.server_events: list[dict[str, Any]] = []
+        self._outage_started: float | None = None
 
     # ── lifecycle ─────────────────────────────────────────────────────────────
 
@@ -178,6 +183,25 @@ class EdgeRuntime:
             await asyncio.to_thread(session.stop)
         self.runners.pop(camera_id, None)
 
+    def note_server_event(self, kind: str, **detail: Any) -> None:
+        event = {"at": datetime.now(UTC).isoformat(), "kind": kind, **detail}
+        self.server_events.append(event)
+        if len(self.server_events) > 500:
+            del self.server_events[: len(self.server_events) - 500]
+        logger.warning("model server event: %s", event)
+
+    def _track_outage(self, ok: bool) -> None:
+        now = time.time()
+        if ok:
+            if self._outage_started is not None:
+                self.note_server_event(
+                    "outage ended", duration_s=round(now - self._outage_started, 1)
+                )
+                self._outage_started = None
+        elif self._outage_started is None:
+            self._outage_started = now
+            self.note_server_event("outage started", error=self.model.last_error)
+
     # ── access for routes ─────────────────────────────────────────────────────
 
     def session(self, camera_id: str) -> CameraSession | None:
@@ -213,7 +237,14 @@ class EdgeRuntime:
         return {
             "started_at": self.started_at,
             "host": self.host.to_dict(),
-            "model": self.model.status(),
+            "model": {
+                **self.model.status(),
+                "outage_open_since": (
+                    datetime.fromtimestamp(self._outage_started, tz=UTC).isoformat()
+                    if self._outage_started else None
+                ),
+            },
+            "server_events": self.server_events[-50:],
             "inference": self.inference_settings.model_dump(),
             "cameras": cameras,
         }
@@ -264,8 +295,10 @@ class EdgeRuntime:
             except asyncio.CancelledError:
                 raise
             except Exception:
+                self._track_outage(False)
                 await self._publish_status(camera_id, "inference_unavailable", session)
                 continue
+            self._track_outage(True)
             inferred = normalize_detections_to_unit(inferred)
             if self.inference_metrics is not None and inferred.inference_latency_ms is not None:
                 self.inference_metrics.record(inferred.inference_latency_ms)

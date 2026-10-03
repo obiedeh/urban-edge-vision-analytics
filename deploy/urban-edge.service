@@ -17,6 +17,8 @@ Environment=STORE_PATH=%h/.local/share/urban-edge/store.sqlite
 Environment=URBAN_EDGE_SECRET_KEY_FILE=%h/.config/urban-edge/secret.key
 ExecStartPre=/bin/mkdir -p %h/.local/share/urban-edge
 ExecStart=%h/github/urban-edge-vision-analytics/.venv/bin/uvicorn api.main:app --host 0.0.0.0 --port 8080
+StandardOutput=append:%h/.local/share/urban-edge/api.log
+StandardError=append:%h/.local/share/urban-edge/api.log
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=30
