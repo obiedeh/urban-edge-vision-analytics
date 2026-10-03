@@ -6,13 +6,13 @@ Edge vision analytics for streets and intersections. Network cameras are configu
 
 This is operational analysis with a human in the loop. It is not automated enforcement, and it does not read license plates.
 
-A one-page tour of the system, with screens from the running console, is in [docs/showcase/index.html](docs/showcase/index.html). Download it and open it in a browser.
+**Project overview:** [open the one-page showcase](https://obiedeh.github.io/urban-edge-vision-analytics/docs/showcase/) for the pack diagrams, the signal path and screens from the running console. Source: [`docs/showcase/index.html`](docs/showcase/index.html); it is a single self-contained file, so it also opens straight from a clone.
 
 ---
 
 ## What it does today
 
-Every item below is implemented on `main` and covered by the test suite or by code you can read at the linked path. Nothing here is a performance claim; see [Not yet measured](#not-yet-measured).
+Every item below is implemented on `main` and covered by the test suite or by code you can read at the linked path. Nothing here is a performance claim; see [Not yet measured](#not-yet-measured). For a picture of where each pack sits on a street, see the [site plan in the showcase](https://obiedeh.github.io/urban-edge-vision-analytics/docs/showcase/#plan-h).
 
 **Camera setup in the UI**
 - Vendor profiles with main and sub stream paths filled in automatically: Tapo, Hikvision, Dahua, Amcrest, Axis, Reolink, UniFi Protect, generic RTSP, HTTP MJPEG, browser webcam (WebRTC), plus a labelled synthetic feed for demos and tests (`vision/camera_profiles.py`).
@@ -54,6 +54,8 @@ Every item below is implemented on `main` and covered by the test suite or by co
 
 ## Architecture
 
+The same path with a short description of each stage is in the [showcase](https://obiedeh.github.io/urban-edge-vision-analytics/docs/showcase/#flow-h).
+
 ```text
  camera (RTSP / HTTP MJPEG / browser webcam)
         |
@@ -86,6 +88,7 @@ telemetry/    metrics, run capture
 cloud/        optional edge-to-cloud publishers (off by default)
 web/          operator UI (Vite, React, TypeScript)
 deploy/       systemd unit
+docs/         design notes; showcase/ holds the one-page project overview
 tests/        unit, API and runtime tests
 ```
 
