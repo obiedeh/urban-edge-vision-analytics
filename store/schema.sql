@@ -87,6 +87,19 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE INDEX IF NOT EXISTS idx_events_camera_ts ON events(camera_id, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_events_review ON events(operator_review_recommended, review_status);
+-- Column added by migration: ground_truth TEXT (operator's note of a known pass)
+
+CREATE TABLE IF NOT EXISTS vehicle_counts (
+    event_id TEXT PRIMARY KEY,
+    camera_id TEXT NOT NULL,
+    timestamp TEXT NOT NULL,
+    hour_bucket TEXT NOT NULL,        -- UTC hour, e.g. 2026-10-02T14
+    vehicle_type TEXT NOT NULL,
+    crossing TEXT NOT NULL,           -- a_to_b | b_to_a
+    direction_label TEXT NOT NULL,
+    track_id TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_counts_camera_hour ON vehicle_counts(camera_id, hour_bucket);
 
 CREATE TABLE IF NOT EXISTS incidents (
     incident_id TEXT PRIMARY KEY,

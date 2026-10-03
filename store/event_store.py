@@ -10,11 +10,11 @@ import json
 import sqlite3
 import threading
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from events.schemas import IncidentStatus, IntersectionIncident, Severity, TrafficEvent
+from events.schemas import EventType, IncidentStatus, IntersectionIncident, Severity, TrafficEvent
 
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
@@ -30,6 +30,9 @@ class SqliteEventStore:
         self.evidence_dir = Path(db_path).parent / "evidence"
         with self._connect() as db:
             db.executescript(_SCHEMA_PATH.read_text(encoding="utf-8"))
+            cols = {row[1] for row in db.execute("PRAGMA table_info(events)")}
+            if "ground_truth" not in cols:
+                db.execute("ALTER TABLE events ADD COLUMN ground_truth TEXT")
 
     def _connect(self) -> sqlite3.Connection:
         db = sqlite3.connect(self._db_path, timeout=10, check_same_thread=False)
@@ -52,6 +55,14 @@ class SqliteEventStore:
             self.evidence_dir.mkdir(parents=True, exist_ok=True)
             (self.evidence_dir / f"{event.event_id}.jpg").write_bytes(frame_jpeg)
             payload["has_frame"] = True
+        count_row = None
+        if event.event_type == EventType.vehicle_count:
+            count_row = (
+                event.event_id, event.camera_id, event.timestamp.isoformat(),
+                event.timestamp.astimezone(UTC).strftime("%Y-%m-%dT%H"),
+                str(payload.get("vehicle_type", "other")), str(payload.get("crossing", "")),
+                str(payload.get("direction_label", "")), str(payload.get("track_id", "")),
+            )
         review_status = "pending" if event.operator_review_recommended else "none"
         payload["review_status"] = review_status
         with self._lock, self._connect() as db:
@@ -74,7 +85,81 @@ class SqliteEventStore:
                     json.dumps(payload),
                 ),
             )
+            if count_row is not None:
+                db.execute(
+                    """
+                    INSERT OR REPLACE INTO vehicle_counts
+                        (event_id, camera_id, timestamp, hour_bucket, vehicle_type, crossing,
+                         direction_label, track_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    count_row,
+                )
         return payload
+
+    # ── Vehicle counts ────────────────────────────────────────────────────────
+
+    def count_summary(self, camera_id: str | None = None, *, hours: int = 24) -> dict[str, Any]:
+        """Totals by class and direction plus an hourly breakdown (UTC hours)."""
+        since = datetime.now(UTC) - timedelta(hours=max(1, hours))
+        since_bucket = since.strftime("%Y-%m-%dT%H")
+        clauses = ["hour_bucket >= ?"]
+        params: list[Any] = [since_bucket]
+        if camera_id:
+            clauses.append("camera_id = ?")
+            params.append(camera_id)
+        where = " AND ".join(clauses)
+        with self._lock, self._connect() as db:
+            by_type = db.execute(
+                "SELECT vehicle_type, direction_label, crossing, COUNT(*) AS n "
+                f"FROM vehicle_counts WHERE {where} "
+                "GROUP BY vehicle_type, direction_label, crossing",
+                params,
+            ).fetchall()
+            hourly = db.execute(
+                f"SELECT hour_bucket, vehicle_type, direction_label, COUNT(*) AS n "
+                f"FROM vehicle_counts WHERE {where} GROUP BY hour_bucket, vehicle_type, "
+                f"direction_label ORDER BY hour_bucket",
+                params,
+            ).fetchall()
+            total = db.execute(
+                f"SELECT COUNT(*) FROM vehicle_counts WHERE {where}", params
+            ).fetchone()[0]
+            all_time = db.execute(
+                "SELECT COUNT(*) FROM vehicle_counts"
+                + (" WHERE camera_id = ?" if camera_id else ""),
+                [camera_id] if camera_id else [],
+            ).fetchone()[0]
+        totals_by_type: dict[str, int] = {}
+        totals_by_direction: dict[str, int] = {}
+        matrix: dict[str, dict[str, int]] = {}
+        for row in by_type:
+            vtype = row["vehicle_type"]
+            totals_by_type[vtype] = totals_by_type.get(vtype, 0) + row["n"]
+            label = row["direction_label"] or row["crossing"]
+            totals_by_direction[label] = totals_by_direction.get(label, 0) + row["n"]
+            matrix.setdefault(label, {})[row["vehicle_type"]] = row["n"]
+        hours_out: dict[str, dict[str, Any]] = {}
+        for row in hourly:
+            bucket = hours_out.setdefault(
+                row["hour_bucket"],
+                {"hour": row["hour_bucket"], "total": 0, "by_type": {}, "by_direction": {}},
+            )
+            bucket["total"] += row["n"]
+            vtype = row["vehicle_type"]
+            bucket["by_type"][vtype] = bucket["by_type"].get(vtype, 0) + row["n"]
+            label = row["direction_label"]
+            bucket["by_direction"][label] = bucket["by_direction"].get(label, 0) + row["n"]
+        return {
+            "camera_id": camera_id,
+            "window_hours": hours,
+            "total": int(total),
+            "all_time_total": int(all_time),
+            "by_type": totals_by_type,
+            "by_direction": totals_by_direction,
+            "by_direction_and_type": matrix,
+            "hourly": list(hours_out.values()),
+        }
 
     def get_event(self, event_id: str) -> dict[str, Any] | None:
         with self._lock, self._connect() as db:
@@ -125,7 +210,13 @@ class SqliteEventStore:
                 row = db.execute("SELECT COUNT(*) FROM events").fetchone()
         return int(row[0]) if row else 0
 
-    def review_event(self, event_id: str, status: str, note: str = "") -> dict[str, Any] | None:
+    def review_event(
+        self,
+        event_id: str,
+        status: str,
+        note: str = "",
+        ground_truth: str | None = None,
+    ) -> dict[str, Any] | None:
         if status not in REVIEW_STATUSES:
             raise ValueError(f"review status must be one of {REVIEW_STATUSES}")
         now = datetime.now(UTC).isoformat()
@@ -137,15 +228,37 @@ class SqliteEventStore:
             payload["review_status"] = status
             payload["review_note"] = note
             payload["reviewed_at"] = now
+            gt = row["ground_truth"] if ground_truth is None else (ground_truth.strip() or None)
+            payload["ground_truth"] = gt
             db.execute(
                 """
                 UPDATE events SET review_status = ?, review_note = ?, reviewed_at = ?,
-                                  payload_json = ?
+                                  ground_truth = ?, payload_json = ?
                 WHERE event_id = ?
                 """,
-                (status, note, now, json.dumps(payload), event_id),
+                (status, note, now, gt, json.dumps(payload), event_id),
             )
         return payload
+
+    def list_ground_truth(
+        self, *, camera_id: str | None = None, since: str | None = None, until: str | None = None
+    ) -> list[dict[str, Any]]:
+        clauses = ["ground_truth IS NOT NULL AND ground_truth != ''"]
+        params: list[Any] = []
+        if camera_id:
+            clauses.append("camera_id = ?")
+            params.append(camera_id)
+        if since:
+            clauses.append("timestamp >= ?")
+            params.append(since)
+        if until:
+            clauses.append("timestamp <= ?")
+            params.append(until)
+        with self._lock, self._connect() as db:
+            rows = db.execute(
+                f"SELECT * FROM events WHERE {' AND '.join(clauses)} ORDER BY timestamp", params
+            ).fetchall()
+        return [_event_row(r) for r in rows]
 
     def review_counts(self) -> dict[str, int]:
         with self._lock, self._connect() as db:
@@ -250,4 +363,5 @@ def _event_row(row: sqlite3.Row) -> dict[str, Any]:
     payload["reviewed_at"] = row["reviewed_at"]
     if row["pack_id"]:
         payload["pack_id"] = row["pack_id"]
+    payload["ground_truth"] = row["ground_truth"] if "ground_truth" in row.keys() else None
     return payload

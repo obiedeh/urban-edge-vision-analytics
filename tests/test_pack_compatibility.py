@@ -40,8 +40,17 @@ def test_all_8_subsets(subset: frozenset[PackId]) -> None:
         validate_pack_set(subset)  # must not raise
 
 
-def test_allowed_sets_has_exactly_6_entries() -> None:
-    assert len(ALLOWED_SETS) == 6
+def test_allowed_sets_has_exactly_12_entries() -> None:
+    # 6 sight-line combinations, each with and without vehicle_count.
+    assert len(ALLOWED_SETS) == 12
+
+
+def test_vehicle_count_combines_with_every_allowed_set() -> None:
+    validate_pack_set([PackId.vehicle_count])
+    validate_pack_set([PackId.vehicle_count, PackId.moving_object, PackId.stop_sign])
+    validate_pack_set([PackId.vehicle_count, PackId.moving_object, PackId.speed_violation])
+    with pytest.raises(IncompatiblePackSelection):
+        validate_pack_set([PackId.vehicle_count, PackId.speed_violation, PackId.stop_sign])
 
 
 def test_blocked_speed_stop_error_message() -> None:

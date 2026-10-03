@@ -4,13 +4,19 @@ from collections.abc import Iterable
 
 from .base import PackId
 
-ALLOWED_SETS: set[frozenset[PackId]] = {
+_BASE_SETS: set[frozenset[PackId]] = {
     frozenset(),
     frozenset({PackId.moving_object}),
     frozenset({PackId.speed_violation}),
     frozenset({PackId.stop_sign}),
     frozenset({PackId.moving_object, PackId.speed_violation}),
     frozenset({PackId.moving_object, PackId.stop_sign}),
+}
+
+# The count line has no sight-line requirement of its own, so vehicle_count
+# combines with every allowed set.
+ALLOWED_SETS: set[frozenset[PackId]] = _BASE_SETS | {
+    s | {PackId.vehicle_count} for s in _BASE_SETS
 }
 
 # Human-readable reasons for blocked combinations
@@ -56,8 +62,8 @@ class MissingPrerequisite(ValueError):
 def validate_pack_set(packs: Iterable[PackId]) -> None:
     """Raise IncompatiblePackSelection if the set is not in ALLOWED_SETS.
 
-    Exhaustively covers all 8 subsets of the 3 packs:
-      {} {1} {2} {3} {1,2} {1,3} {2,3}✗ {1,2,3}✗
+    Of the three sight-line packs, speed_violation and stop_sign cannot share a
+    camera; vehicle_count is allowed with any combination.
     """
     if frozenset(packs) not in ALLOWED_SETS:
         raise IncompatiblePackSelection(frozenset(packs))

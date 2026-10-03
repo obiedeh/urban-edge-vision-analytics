@@ -22,6 +22,7 @@ from packs.moving_object import MovingObjectPack
 from packs.speed_violation import SpeedCalibrationConfig, SpeedViolationConfig, SpeedViolationPack
 from packs.stop_sign import StopSignConfig, StopSignPack, StopZone
 from packs.tracking import CentroidTracker
+from packs.vehicle_count import VehicleCountConfig, VehicleCountPack
 from vision.schemas import InferenceFrame
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,7 @@ class PackRunner:
             PackId.moving_object: MovingObjectPack(),
             PackId.speed_violation: SpeedViolationPack(),
             PackId.stop_sign: StopSignPack(),
+            PackId.vehicle_count: VehicleCountPack(),
         }
         self._bindings: list[dict[str, Any]] = []
         self._stop_zone: dict[str, Any] | None = None
@@ -97,6 +99,8 @@ class PackRunner:
                         cal_data[key] = json.loads(value or "[]")
                 cal = SpeedCalibrationConfig(**_known(SpeedCalibrationConfig, cal_data))
             return SpeedViolationConfig(calibration=cal, **_known(SpeedViolationConfig, params))
+        if pack_id == PackId.vehicle_count:
+            return VehicleCountConfig(**_known(VehicleCountConfig, params))
         return MovingObjectPack.parameters(**_known(MovingObjectPack.parameters, params))
 
     @property

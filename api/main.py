@@ -307,6 +307,25 @@ def review_queue(status: str = "pending", limit: int = 100) -> dict:
     }
 
 
+@app.get("/events/ground-truth")
+def ground_truth_events(
+    camera_id: str | None = None, since: str | None = None, until: str | None = None
+) -> list[dict]:
+    """Events the operator annotated with a known pass (pack output vs. ground truth)."""
+    return _store.list_ground_truth(camera_id=camera_id, since=since, until=until)
+
+
+@app.get("/counts")
+def all_counts(hours: int = 24) -> dict:
+    return _store.count_summary(None, hours=hours)
+
+
+@app.get("/cameras/{camera_id}/counts")
+def camera_counts(camera_id: str, hours: int = 24) -> dict:
+    """Vehicle-count totals by class and direction with an hourly breakdown."""
+    return _store.count_summary(camera_id, hours=hours)
+
+
 @app.get("/events/{event_id}/frame.jpg", include_in_schema=True)
 def get_event_frame(event_id: str) -> FileResponse:
     """The inference frame captured when a pack event was emitted (if stored)."""
@@ -327,6 +346,9 @@ def get_event(event_id: str) -> dict:
 class ReviewRequest(BaseModel):
     status: str
     note: str = ""
+    # Operator's description of the known pass behind this event, e.g.
+    # "my car, 20 mph" or "full stop". Reported against pack output in run artifacts.
+    ground_truth: str | None = None
 
 
 @app.post("/events/{event_id}/review")
@@ -335,7 +357,7 @@ def review_event(event_id: str, req: ReviewRequest) -> dict:
         raise HTTPException(
             status_code=422, detail="status must be pending, confirmed or dismissed"
         )
-    updated = _store.review_event(event_id, req.status, req.note)
+    updated = _store.review_event(event_id, req.status, req.note, ground_truth=req.ground_truth)
     if not updated:
         raise HTTPException(status_code=404, detail="Event not found")
     return updated
