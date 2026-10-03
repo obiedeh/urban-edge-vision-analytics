@@ -209,6 +209,19 @@ async def test_unsaved_camera(
                 "note": f"{profile.label} has no stream to probe."}
     password = req.password
     if not password and req.camera_id:
+        saved = await store.get_camera(req.camera_id)
+        if saved is None:
+            return {"ok": False, "stage": "url", "masked_url": "",
+                    "error": f"Camera '{req.camera_id}' is not saved; enter the password."}
+        # The stored password is only ever sent to the host it was saved for.
+        if (saved.host, saved.port or profile.default_port) != (req.host, req.port):
+            return {
+                "ok": False, "stage": "url", "masked_url": "",
+                "error": (
+                    "Host or port differs from the saved camera, so the stored password "
+                    "cannot be reused. Enter the password to test the new address."
+                ),
+            }
         password = await store.get_camera_secret(req.camera_id)
     try:
         url = profile.build_url(
