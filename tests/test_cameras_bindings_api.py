@@ -17,8 +17,9 @@ def test_list_use_cases() -> None:
     assert resp.status_code == 200
     data = resp.json()
     assert isinstance(data, list)
-    assert len(data) == 3
+    assert len(data) == 4
     pack_ids = {d["pack_id"] for d in data}
+    assert "vehicle_count" in pack_ids
     assert "moving_object" in pack_ids
     assert "speed_violation" in pack_ids
     assert "stop_sign" in pack_ids

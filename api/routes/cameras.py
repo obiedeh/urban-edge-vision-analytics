@@ -335,6 +335,22 @@ async def put_bindings(
                     },
                 )
 
+        if b.pack_id == PackId.vehicle_count:
+            line = b.parameters.get("count_line") or []
+            if len(line) < 2:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "error": "missing_prerequisite",
+                        "pack_id": str(b.pack_id),
+                        "prerequisite": "count_line",
+                        "message": (
+                            "Pack 'vehicle_count' requires a two-point count_line in its "
+                            "parameters (draw it in Studio)."
+                        ),
+                    },
+                )
+
     binding_rows = [
         {
             "pack_id": str(b.pack_id),
