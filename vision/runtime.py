@@ -281,7 +281,9 @@ class EdgeRuntime:
                     update={"detections": self._tracked_detections(runner, inferred)}
                 )
             for pack_id, event in pack_events:
-                await asyncio.to_thread(self.events.add_event, event, pack_id=pack_id)
+                await asyncio.to_thread(
+                    self.events.add_event, event, pack_id=pack_id, frame_jpeg=frame_bytes
+                )
                 if self.runtime_snapshot is not None:
                     self.runtime_snapshot.event_count += 1
                 if self.publisher is not None:
