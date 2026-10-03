@@ -130,3 +130,38 @@ def test_test_connection_url_stage_for_bad_config() -> None:
     )
     # generic_rtsp with no creds is a valid URL; probing is mocked elsewhere, so just check shape
     assert r.status_code == 200 and "stage" in r.json()
+
+
+def test_test_connection_with_camera_id_uses_stored_password(monkeypatch) -> None:
+    seen: dict = {}
+
+    def fake_probe(url: str, rtsp_transport: str) -> dict:
+        seen["url"] = url
+        return {"ok": True, "stage": "ok", "error": None, "masked_url": "x"}
+
+    monkeypatch.setattr(cam_routes, "_probe_payload", fake_probe)
+    cam = client.post("/cameras", json=TAPO).json()
+    # Edited host + blank password: the stored password is used for the probe.
+    r = client.post(
+        "/cameras/test",
+        json={**TAPO, "password": "", "host": "192.0.2.99", "camera_id": cam["id"]},
+    )
+    assert r.status_code == 200 and r.json()["ok"]
+    assert seen["url"] == "rtsp://viewer:s3cret-pass@192.0.2.99:554/stream2"
+
+
+def test_event_frame_stored_and_served() -> None:
+    from datetime import UTC, datetime
+
+    import api.main as main_mod
+    from events.schemas import EventType, Severity, TrafficEvent
+
+    event = TrafficEvent(
+        event_id="evt-frame-1", camera_id="cam", event_type=EventType.person_activity,
+        severity=Severity.warning, timestamp=datetime.now(UTC), operator_review_recommended=True,
+    )
+    main_mod._store.add_event(event, pack_id="moving_object", frame_jpeg=b"\xff\xd8\xff\xd9")
+    assert client.get("/events/evt-frame-1").json()["has_frame"] is True
+    r = client.get("/events/evt-frame-1/frame.jpg")
+    assert r.status_code == 200 and r.headers["content-type"] == "image/jpeg"
+    assert client.get("/events/missing/frame.jpg").status_code == 404

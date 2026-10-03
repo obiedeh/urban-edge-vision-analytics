@@ -32,10 +32,16 @@ function ReviewItem({
   return (
     <div className={cn("rounded-lg border bg-card p-3 space-y-2", evt.severity === "critical" ? "border-red-500/40" : "border-border")}>
       <div className="flex items-start gap-3">
-        {/* No snapshot is persisted with events — say so rather than showing a live frame that is not the evidence. */}
-        <div className="hidden sm:flex h-16 w-24 shrink-0 items-center justify-center rounded border border-dashed border-border bg-secondary/20 text-[9px] text-muted-foreground/60 text-center px-1">
-          <span><ImageOff className="h-3 w-3 mx-auto mb-0.5" />no snapshot stored</span>
-        </div>
+        {/* The inference frame stored when the pack emitted the event; older events have none. */}
+        {evt.has_frame ? (
+          <a href={api.events.frameUrl(evt.event_id)} target="_blank" rel="noreferrer" className="hidden sm:block h-16 w-24 shrink-0 overflow-hidden rounded border border-border bg-black">
+            <img src={api.events.frameUrl(evt.event_id)} alt="evidence frame" className="h-full w-full object-cover" />
+          </a>
+        ) : (
+          <div className="hidden sm:flex h-16 w-24 shrink-0 items-center justify-center rounded border border-dashed border-border bg-secondary/20 text-[9px] text-muted-foreground/60 text-center px-1">
+            <span><ImageOff className="h-3 w-3 mx-auto mb-0.5" />no frame stored</span>
+          </div>
+        )}
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex items-center gap-2 flex-wrap">
             <button onClick={onOpen} className="text-xs font-semibold text-foreground hover:text-primary">{eventLabel(evt)}</button>

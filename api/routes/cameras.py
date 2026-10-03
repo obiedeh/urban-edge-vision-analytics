@@ -192,22 +192,33 @@ def _probe_payload(url: str, rtsp_transport: str) -> dict:
     return data
 
 
+class CameraTestIn(CameraIn):
+    # When editing a saved camera with the password left blank, the stored
+    # (encrypted) password is used so unsaved host/path edits can still be probed.
+    camera_id: str | None = None
+
+
 @router.post("/test")
-async def test_unsaved_camera(req: CameraIn) -> dict:
+async def test_unsaved_camera(
+    req: CameraTestIn, store: ConfigStore = Depends(_get_store)
+) -> dict:
     """Probe the stream described by the form (not yet saved)."""
     profile = get_profile(req.profile)
     if not profile.requires_host:
         return {"ok": True, "stage": "ok", "error": None, "masked_url": "",
                 "note": f"{profile.label} has no stream to probe."}
+    password = req.password
+    if not password and req.camera_id:
+        password = await store.get_camera_secret(req.camera_id)
     try:
         url = profile.build_url(
-            host=req.host, username=req.username or None, password=req.password or None,
+            host=req.host, username=req.username or None, password=password or None,
             port=req.port, channel=req.channel, quality=req.stream_quality,
             path=req.stream_path or None,
         )
     except CameraConfigError as exc:
         return {"ok": False, "stage": "url", "error": str(exc), "masked_url": ""}
-    REDACTOR.register(req.password)
+    REDACTOR.register(password)
     import asyncio
 
     return await asyncio.to_thread(_probe_payload, url, req.rtsp_transport)

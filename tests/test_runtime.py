@@ -117,6 +117,8 @@ async def test_pack_events_reach_store_and_hot_rebinding(runtime: EdgeRuntime) -
     assert events[0]["event_type"] == "person_activity"
     assert events[0]["pack_id"] == "moving_object"
     assert events[0]["track_id"].startswith("t")
+    assert events[0]["has_frame"] is True
+    assert runtime.events.frame_path(events[0]["event_id"]) is not None
     # Live result carries detections with stable track ids for the overlay.
     result = runtime.last_results[cam.id]
     assert result.metadata["detections"][0]["bbox"][0] == pytest.approx(0.45, abs=0.01)

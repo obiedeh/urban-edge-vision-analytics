@@ -307,6 +307,15 @@ def review_queue(status: str = "pending", limit: int = 100) -> dict:
     }
 
 
+@app.get("/events/{event_id}/frame.jpg", include_in_schema=True)
+def get_event_frame(event_id: str) -> FileResponse:
+    """The inference frame captured when a pack event was emitted (if stored)."""
+    path = _store.frame_path(event_id)
+    if path is None:
+        raise HTTPException(status_code=404, detail="No frame stored for this event")
+    return FileResponse(str(path), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
 @app.get("/events/{event_id}")
 def get_event(event_id: str) -> dict:
     event = _store.get_event(event_id)
