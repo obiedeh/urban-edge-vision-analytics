@@ -8,8 +8,12 @@ export interface Shape {
   label: string;
   points: Point[];
   color: string;
-  /** "polygon" closes the path; "line" draws a polyline (2 points = gate line) */
-  kind?: "polygon" | "line";
+  /** "polygon" closes the path; "line" draws a polyline (2 points = gate line); "arrow" is a line with an arrowhead at the last point */
+  kind?: "polygon" | "line" | "arrow";
+  /** cap on vertices; further clicks are ignored (e.g. 2 for a count line) */
+  maxPoints?: number;
+  /** per-vertex labels drawn next to the handles (e.g. ["A", "B"]) */
+  pointLabels?: string[];
 }
 
 interface Props {
@@ -74,8 +78,10 @@ export function ZoneCanvas({ cameraId, shapes, activeId, onChange, className }: 
 
   const active = shapes.find((s) => s.id === activeId) ?? null;
 
+  const full = Boolean(active && active.maxPoints != null && active.points.length >= active.maxPoints);
+
   function handleClick(e: React.MouseEvent) {
-    if (!active || drag) return;
+    if (!active || drag || full) return;
     const [px, py] = localPoint(e);
     const p = toNorm(px, py);
     onChange(active.id, [...active.points, [Number(p[0].toFixed(4)), Number(p[1].toFixed(4))]]);
@@ -158,9 +164,18 @@ export function ZoneCanvas({ cameraId, shapes, activeId, onChange, className }: 
               const d = px.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x},${y}`).join(" ");
               const isActive = s.id === activeId;
               const closed = (s.kind ?? "polygon") === "polygon" && s.points.length >= 3;
+              const arrow = s.kind === "arrow" && px.length >= 2;
+              // Arrowhead at the last vertex, pointing along the final segment (drawn A→B).
+              let head: string | null = null;
+              if (arrow) {
+                const [x1, y1] = px[px.length - 2], [x2, y2] = px[px.length - 1];
+                const ang = Math.atan2(y2 - y1, x2 - x1), L = 12, W = 0.45;
+                head = `M${x2},${y2} L${x2 - L * Math.cos(ang - W)},${y2 - L * Math.sin(ang - W)} L${x2 - L * Math.cos(ang + W)},${y2 - L * Math.sin(ang + W)} Z`;
+              }
               return (
                 <g key={s.id} opacity={activeId && !isActive ? 0.55 : 1}>
                   <path d={closed ? `${d} Z` : d} fill={closed ? s.color : "none"} fillOpacity={0.18} stroke={s.color} strokeWidth={isActive ? 2.5 : 1.5} />
+                  {head && <path d={head} fill={s.color} />}
                   {px.map(([x, y], i) => (
                     <circle
                       key={i}
@@ -171,6 +186,9 @@ export function ZoneCanvas({ cameraId, shapes, activeId, onChange, className }: 
                       onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDrag({ shapeId: s.id, index: i }); }}
                     />
                   ))}
+                  {s.pointLabels && px.map(([x, y], i) => s.pointLabels?.[i] ? (
+                    <text key={`l${i}`} x={x + 9} y={y + 13} fontSize={12} fontFamily="ui-monospace, monospace" fill={s.color} fontWeight={700} stroke="#0b1220" strokeWidth={3} paintOrder="stroke">{s.pointLabels[i]}</text>
+                  ) : null)}
                   <text x={px[0][0] + 8} y={px[0][1] - 8} fontSize={11} fontFamily="ui-monospace, monospace" fill={s.color} fontWeight={700}>{s.label}</text>
                 </g>
               );
@@ -183,7 +201,7 @@ export function ZoneCanvas({ cameraId, shapes, activeId, onChange, className }: 
         <button type="button" onClick={removeLast} disabled={!active || active.points.length === 0} className={cn(btnGhost, "py-1")}><Undo2 className="h-3 w-3" /> Remove last</button>
         <button type="button" onClick={() => active && onChange(active.id, [])} disabled={!active || active.points.length === 0} className={cn(btnGhost, "py-1 text-red-400/80 hover:text-red-400")}><Trash2 className="h-3 w-3" /> Clear</button>
         <span className="ml-auto">
-          {active ? <>Drawing <span className="font-semibold" style={{ color: active.color }}>{active.label}</span> — click to add, drag to move, right-click/Backspace to undo</> : "Select a shape to edit"}
+          {active ? <>Drawing <span className="font-semibold" style={{ color: active.color }}>{active.label}</span> — {full ? `${active.maxPoints} points placed: drag to adjust, right-click/Backspace to undo` : "click to add, drag to move, right-click/Backspace to undo"}</> : "Select a shape to edit"}
         </span>
       </div>
     </div>

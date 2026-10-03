@@ -19,12 +19,14 @@ function ReviewItem({
   onOpen: () => void;
 }) {
   const [note, setNote] = useState(evt.review_note ?? "");
+  const [groundTruth, setGroundTruth] = useState(evt.ground_truth ?? "");
   const [busy, setBusy] = useState<"" | "confirmed" | "dismissed" | "pending">("");
   const [err, setErr] = useState<string | null>(null);
 
   async function act(status: "confirmed" | "dismissed" | "pending") {
     setBusy(status); setErr(null);
-    try { onReviewed(await api.events.review(evt.event_id, status, note)); }
+    // ground_truth is always sent: "" clears a previously stored value.
+    try { onReviewed(await api.events.review(evt.event_id, status, note, groundTruth)); }
     catch (e) { setErr(apiErrorMessage(e, "Review failed")); }
     finally { setBusy(""); }
   }
@@ -54,10 +56,14 @@ function ReviewItem({
           {evt.reviewed_at && tab !== "pending" && (
             <p className="text-[10px] text-muted-foreground/70">reviewed {formatDateTime(evt.reviewed_at)}{evt.review_note ? ` — "${evt.review_note}"` : ""}</p>
           )}
+          {evt.ground_truth && (
+            <p className="text-[10px] text-sky-300/90"><span className="text-muted-foreground/70">ground truth</span> {evt.ground_truth}</p>
+          )}
         </div>
       </div>
       <div className="flex items-center gap-2 flex-wrap">
         <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optional note" className={cn(inputCls, "flex-1 min-w-[160px]")} disabled={busy !== ""} />
+        <input value={groundTruth} onChange={(e) => setGroundTruth(e.target.value)} placeholder="known pass, e.g. my car, 20 mph / full stop / rolling stop" title="Ground truth: what actually happened in this pass" className={cn(inputCls, "flex-1 min-w-[200px]")} disabled={busy !== ""} />
         {tab !== "confirmed" && (
           <button onClick={() => act("confirmed")} disabled={busy !== ""} className="inline-flex items-center gap-1 rounded border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-400 hover:bg-emerald-500/20 disabled:opacity-50">
             {busy === "confirmed" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />} Confirm

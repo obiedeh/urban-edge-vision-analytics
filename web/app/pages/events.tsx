@@ -47,6 +47,12 @@ export function EventDrawer({ event, onClose, cameraName }: { event: TrafficEven
               {event.review_note && <div className="text-foreground/80 mt-1 italic">"{event.review_note}"</div>}
             </div>
           )}
+          {event.ground_truth && (
+            <div className="rounded border border-sky-500/30 bg-sky-500/10 px-3 py-2">
+              <div className="text-muted-foreground">Ground truth</div>
+              <div className="text-sky-200">{event.ground_truth}</div>
+            </div>
+          )}
           <div>
             <div className="text-muted-foreground mb-1">Raw metadata</div>
             <pre className="text-[10px] bg-black/40 border border-border rounded p-2 overflow-x-auto text-foreground/80 whitespace-pre-wrap">{JSON.stringify(metadata ?? {}, null, 2)}</pre>
@@ -83,6 +89,7 @@ export function EventRow({ evt, onClick, cameraName, selected }: { evt: TrafficE
         </div>
         <EventPackFields evt={evt} />
         {evt.vlm_summary && <p className="text-[11px] text-muted-foreground/80 truncate">{evt.vlm_summary}</p>}
+        {evt.ground_truth && <p className="text-[10px] text-sky-300/90 truncate"><span className="text-muted-foreground/70">ground truth</span> {evt.ground_truth}</p>}
       </div>
     </button>
   );

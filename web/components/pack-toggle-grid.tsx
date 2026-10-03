@@ -10,23 +10,19 @@ const PACK_LABELS: Record<string, string> = {
   moving_object: "Moving Object",
   speed_violation: "Speed Violation",
   stop_sign: "Stop Sign",
+  vehicle_count: "Vehicle Count",
 };
 
 const PACK_DESC: Record<string, string> = {
   moving_object: "Tracks target classes (default: pedestrians) with direction and descriptor; optional zone",
   speed_violation: "Vehicles exceeding posted speed across two calibrated gates (needs speed calibration)",
   stop_sign: "Vehicles failing to stop inside a drawn stop zone (needs stop zone)",
+  vehicle_count: "Counts vehicles by class and direction as they cross a drawn A→B line (needs count line)",
 };
 
-// Blocked combinations per the brief §11.4
-const BLOCKED: Set<string> = new Set([
-  "speed_violation+stop_sign",
-  "stop_sign+speed_violation",
-]);
-
-function packSetKey(ids: string[]): string {
-  return [...ids].sort().join("+");
-}
+// Blocked pairs per the brief §11.4 — a selection is blocked when it contains any pair,
+// regardless of which other packs (e.g. vehicle_count) are also selected.
+const BLOCKED_PAIRS: [string, string][] = [["speed_violation", "stop_sign"]];
 
 function wouldBeBlocked(active: Set<string>, toggling: string): boolean {
   const next = new Set(active);
@@ -35,7 +31,7 @@ function wouldBeBlocked(active: Set<string>, toggling: string): boolean {
   } else {
     next.add(toggling);
   }
-  return BLOCKED.has(packSetKey(Array.from(next)));
+  return BLOCKED_PAIRS.some(([a, b]) => next.has(a) && next.has(b));
 }
 
 interface Props {
@@ -67,7 +63,7 @@ export function PackToggleGrid({ packs, bindings, onChange, disabled }: Props) {
   }
 
   return (
-    <div className="grid gap-3 sm:grid-cols-3">
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       {packs.map((p) => {
         const active = activePacks.has(p.pack_id);
         const blocked = !active && wouldBeBlocked(activePacks, p.pack_id);

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type Camera, type InferenceResult, type RuntimeCameraStatus } from "@/lib/api";
+import { api, type Camera, type InferenceResult, type Point, type RuntimeCameraStatus } from "@/lib/api";
 import { DetectionOverlay } from "@/components/detection-overlay";
 import { CameraStateChip } from "@/components/status-chip";
 import { cn, formatMs, formatSeconds } from "@/lib/utils";
@@ -16,6 +16,8 @@ interface Props {
   showOverlay?: boolean;
   /** Cap server frame rate for thumbnails. */
   maxFps?: number;
+  /** saved vehicle_count line (normalized A→B) drawn on the overlay */
+  countLine?: Point[] | null;
 }
 
 /** Measure the rendered size of the video box so the SVG overlay can scale normalized boxes. */
@@ -42,7 +44,7 @@ function useBoxSize<T extends HTMLElement>() {
  * The video is never hidden by inference state — inference problems are shown
  * as banners over the still-playing stream.
  */
-export function LiveVideo({ camera, result, runtime, className, showOverlay = true, maxFps }: Props) {
+export function LiveVideo({ camera, result, runtime, className, showOverlay = true, maxFps, countLine }: Props) {
   const { ref: boxRef, size } = useBoxSize<HTMLDivElement>();
   const [intrinsic, setIntrinsic] = useState<{ width: number; height: number } | null>(null);
   const [imgError, setImgError] = useState(false);
@@ -171,6 +173,7 @@ export function LiveVideo({ camera, result, runtime, className, showOverlay = tr
           height={size.height}
           intrinsic={intrinsic}
           stale={stale}
+          countLine={countLine}
         />
       )}
 
