@@ -63,7 +63,7 @@ def test_start_launches_vllm_and_returns_starting_status(monkeypatch):
         "serve",
         "nvidia/cosmos3-nano-reasoner",
         "--host",
-        "0.0.0.0",
+        "127.0.0.1",
         "--port",
         "8001",
         "--trust-remote-code",

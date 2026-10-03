@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import os
 import time
@@ -8,143 +10,147 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 
-from api.pipeline_manager import PipelineManager
+from api.config import load_settings
 from api.vllm_manager import VllmServerManager
-from events.lifecycle import EventStore
+from cloud.publisher import build_publisher
 from events.schemas import EventType, IncidentStatus, IntersectionIncident, Severity, TrafficEvent
 from store.config_store import ConfigStore
+from store.event_store import REVIEW_STATUSES, SqliteEventStore
+from store.models import CameraIn
+from store.secrets import SecretBox
 from telemetry.metrics import InferenceMetrics
 from telemetry.runtime import RuntimeSnapshot
-from transports.snapshot import SnapshotTransport
-from vision.camera_profiles import CameraConfigError, verify_camera_connection
-from vision.frame_slot import FrameSlot
-from vision.inference_loop import InferenceLoop
-from vision.live_pipeline import build_detection_adapter
-from vision.result_broadcaster import ResultBroadcaster
+from telemetry.schemas import EdgeTelemetry
+from vision.camera_profiles import _legacy_quality
+from vision.redaction import install_logging_filter
+from vision.runtime import EdgeRuntime
 from vision.webrtc.signaling import close_peer_connections
 
 logger = logging.getLogger(__name__)
 
 # ── Module-level singletons (only here) ────────────────────────────
-_store = EventStore()
+_settings = load_settings()
+_publisher = build_publisher(
+    enabled=_settings.cloud.enabled,
+    publisher=_settings.cloud.publisher,
+    thing_name=_settings.cloud.thing_name,
+    schema_version=_settings.cloud.schema_version,
+    file_path=_settings.cloud.file_path,
+    iot_endpoint=_settings.cloud.iot_endpoint,
+    cert_path=_settings.cloud.cert_path,
+    key_path=_settings.cloud.key_path,
+    ca_path=_settings.cloud.ca_path,
+)
+_store_path = os.getenv("STORE_PATH", "store/urbanvision.sqlite")
+_secrets = SecretBox()
+_config_store = ConfigStore(_store_path, secrets=_secrets)
+_store = SqliteEventStore(_store_path)
 _inference_metrics = InferenceMetrics()
 _runtime = RuntimeSnapshot()
-_known_cameras: set[str] = set()
-_config_store = ConfigStore(os.getenv("STORE_PATH", "store/urbanvision.sqlite"))
-_snapshot_transport = SnapshotTransport()
-_pipeline_manager = PipelineManager()
+_edge = EdgeRuntime(
+    _config_store,
+    _store,
+    publisher=_publisher,
+    inference_metrics=_inference_metrics,
+    runtime_snapshot=_runtime,
+)
 _vllm_manager = VllmServerManager()
-_frame_slot = FrameSlot()
-_result_broadcaster = ResultBroadcaster()
 _webrtc_sessions: dict[str, object] = {}
-_live_inference_loop: InferenceLoop | None = None
+_telemetry_task: asyncio.Task[None] | None = None
 
-_CAMERA_CONFIG_PATH = Path("configs/camera.local.json")
+_LEGACY_CAMERA_CONFIG = Path("configs/camera.local.json")
+
+
+def _publish_telemetry() -> None:
+    """Serialize the runtime + inference dataclasses through the telemetry contract."""
+    _publisher.publish_telemetry(EdgeTelemetry.from_dataclasses(_runtime, _inference_metrics))
+
+
+async def _telemetry_loop(interval_s: float) -> None:
+    while True:
+        await asyncio.sleep(interval_s)
+        _publish_telemetry()
+
+
+async def _import_legacy_camera_config() -> None:
+    """One-time import of the pre-SQLite ``configs/camera.local.json``.
+
+    The password is encrypted into the store; the file itself is left for the
+    operator to delete (it is gitignored) and a warning is logged.
+    """
+    if not _LEGACY_CAMERA_CONFIG.exists():
+        return
+    if await _config_store.list_cameras():
+        return
+    try:
+        cfg = json.loads(_LEGACY_CAMERA_CONFIG.read_text(encoding="utf-8"))
+        profile = (
+            "synthetic" if cfg.get("synthetic") else str(cfg.get("model_type", "generic_rtsp"))
+        )
+        camera = CameraIn(
+            name=str(cfg.get("camera_id") or "imported-camera"),
+            profile=profile,
+            host=str(cfg.get("host", "")),
+            port=int(cfg.get("port") or 0) or None,
+            username=str(cfg.get("username", "")),
+            password=str(cfg.get("password", "")),
+            stream_quality=_legacy_quality(cfg.get("stream")),
+            channel=int(cfg.get("channel") or 1),
+            rtsp_transport=str(cfg.get("rtsp_transport") or "tcp"),  # type: ignore[arg-type]
+            enabled=True,
+        )
+        record = await _config_store.create_camera(
+            camera, camera_id=str(cfg.get("camera_id") or "")
+        )
+        await _config_store.append_audit(
+            "import_legacy_camera", "camera", record.id, {"source": str(_LEGACY_CAMERA_CONFIG)}
+        )
+        logger.warning(
+            "Imported %s into the encrypted config store as camera '%s'. "
+            "Delete the file; it holds a plaintext password and is no longer read.",
+            _LEGACY_CAMERA_CONFIG, record.id,
+        )
+    except Exception:
+        logger.exception("Failed to import legacy camera config")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _live_inference_loop
+    global _telemetry_task
 
+    install_logging_filter()
     _runtime.started_at = time.time()
 
-    # Initialise SQLite schema
-    await _config_store.init()
-
-    live_model_id = os.getenv("LIVE_MODEL_ID", "cosmos-2b")
-    _live_inference_loop = InferenceLoop(
-        _frame_slot,
-        build_detection_adapter(live_model_id),
-        _result_broadcaster,
-        model_id=live_model_id,
-    )
-    await _live_inference_loop.start()
-
-    adapter = os.getenv("DETECTION_ADAPTER", "mock")
-
-    # Legacy: CAMERA_CONFIG env var → validate connection (backward compat)
-    camera_config_env = os.getenv("CAMERA_CONFIG")
-    if camera_config_env:
-        try:
-            connection = verify_camera_connection(
-                camera_config_env,
-                require_ffplay=os.getenv("CAMERA_REQUIRE_FFPLAY", "0") == "1",
-            )
-        except CameraConfigError:
-            logger.exception("Camera startup validation failed")
-            raise
-        _runtime.camera_count = 1
-        _known_cameras.add(connection.camera_id)
-        await _config_store.upsert_camera(
-            {
-                "id": connection.camera_id,
-                "name": connection.camera_id,
-                "profile": connection.model_type,
-                "rtsp_url": connection.masked_feed_url,
-                "detection_adapter": adapter,
-            }
+    if _settings.cloud.enabled:
+        _telemetry_task = asyncio.create_task(
+            _telemetry_loop(_settings.cloud.telemetry_interval_s)
         )
-        logger.info("Camera validated from env: camera_id=%s", connection.camera_id)
 
-    # Auto-start pipeline if configs/camera.local.json exists on disk
-    if _CAMERA_CONFIG_PATH.exists():
-        try:
-            import json as _json
-            _cam_cfg = _json.loads(_CAMERA_CONFIG_PATH.read_text())
-            # Prefer adapter saved in the config file; fall back to env var
-            _saved_adapter = _cam_cfg.get("detection_adapter", adapter)
-            _nvidia_adapters = {"nvidia-nim", "nvidia-vss", "nvidia-cosmos"}
-
-            # Fall back to mock if an NVIDIA adapter is saved but no endpoint is configured
-            _has_endpoint = bool(_cam_cfg.get("nvidia_endpoint", "").strip())
-            if _saved_adapter in _nvidia_adapters and not _has_endpoint:
-                logger.warning(
-                    "Adapter '%s' requires an endpoint URL but none is configured — "
-                    "falling back to mock adapter to avoid a crash loop.",
-                    _saved_adapter,
-                )
-                _saved_adapter = "mock"
-
-            if _saved_adapter and _saved_adapter != "disabled":
-                _saved_synthetic = bool(_cam_cfg.get("synthetic", False))
-                logger.info(
-                    "Auto-starting pipeline from %s (adapter=%s, synthetic=%s)",
-                    _CAMERA_CONFIG_PATH, _saved_adapter, _saved_synthetic,
-                )
-                _pipeline_manager.start(
-                    config_path=str(_CAMERA_CONFIG_PATH),
-                    adapter=_saved_adapter,
-                    nvidia_endpoint=_cam_cfg.get("nvidia_endpoint") or None,
-                    nvidia_api_key=_cam_cfg.get("nvidia_api_key") or None,
-                    synthetic=_saved_synthetic,
-                    local_model=_cam_cfg.get("local_model") or None,
-                    local_endpoint=_cam_cfg.get("local_endpoint") or None,
-                )
-            else:
-                logger.info("Pipeline adapter is 'disabled' — not auto-starting.")
-        except Exception:
-            logger.exception("Failed to auto-start pipeline")
+    await _config_store.init()
+    await _import_legacy_camera_config()
+    if os.getenv("URBAN_EDGE_AUTOSTART", "1") != "0":
+        await _edge.start()
 
     yield
 
-    # Graceful shutdown
-    if _live_inference_loop is not None:
-        await _live_inference_loop.stop()
-        _live_inference_loop = None
+    if _telemetry_task is not None:
+        _telemetry_task.cancel()
+        _telemetry_task = None
+    await _edge.stop()
     await close_peer_connections(_webrtc_sessions)
-    _pipeline_manager.stop()
     _vllm_manager.stop()
+    _publisher.close()
 
 
 app = FastAPI(
     title="Urban Edge Vision Analytics",
     description="Operational observability API for edge vision inference at smart intersections",
-    version="0.1.0",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
@@ -154,25 +160,28 @@ from api.routes import cameras as _cam_routes  # noqa: E402
 from api.routes import live_results as _live_results_routes  # noqa: E402
 from api.routes import local_inference as _local_inference_routes  # noqa: E402
 from api.routes import metrics_extra as _metrics_routes  # noqa: E402
-from api.routes import snapshot as _snap_routes  # noqa: E402
+from api.routes import settings as _settings_routes  # noqa: E402
+from api.routes import stream as _stream_routes  # noqa: E402
 from vision.webrtc import signaling as _webrtc_routes  # noqa: E402
 
 app.dependency_overrides[_cam_routes._get_store] = lambda: _config_store
-app.dependency_overrides[_cam_routes._get_pipeline] = lambda: _pipeline_manager
-app.dependency_overrides[_local_inference_routes._get_vllm_manager] = (
-    lambda: _vllm_manager
-)
-app.dependency_overrides[_snap_routes._get_transport] = lambda: _snapshot_transport
-app.dependency_overrides[_live_results_routes._get_broadcaster] = (
-    lambda: _result_broadcaster
-)
-app.dependency_overrides[_webrtc_routes._get_frame_slot] = lambda: _frame_slot
+app.dependency_overrides[_cam_routes._get_runtime] = lambda: _edge
+app.dependency_overrides[_settings_routes._get_store] = lambda: _config_store
+app.dependency_overrides[_settings_routes._get_runtime] = lambda: _edge
+app.dependency_overrides[_stream_routes._get_runtime] = lambda: _edge
+app.dependency_overrides[_local_inference_routes._get_vllm_manager] = lambda: _vllm_manager
+app.dependency_overrides[_local_inference_routes._get_store] = lambda: _config_store
+app.dependency_overrides[_local_inference_routes._get_runtime] = lambda: _edge
+app.dependency_overrides[_live_results_routes._get_broadcaster] = lambda: _edge.broadcaster
+app.dependency_overrides[_live_results_routes._get_runtime] = lambda: _edge
+app.dependency_overrides[_webrtc_routes._get_runtime] = lambda: _edge
 app.dependency_overrides[_webrtc_routes._get_sessions] = lambda: _webrtc_sessions
-app.dependency_overrides[_metrics_routes._get_inference_metrics] = (
-    lambda: _inference_metrics
+app.dependency_overrides[_metrics_routes._get_inference_metrics] = lambda: _inference_metrics
+app.dependency_overrides[_metrics_routes._get_adapter_name] = (
+    lambda: _edge.model.settings.backend
 )
-app.dependency_overrides[_metrics_routes._get_adapter_name] = lambda: os.getenv(
-    "DETECTION_ADAPTER", "mock"
+app.dependency_overrides[_metrics_routes._get_flow] = lambda: next(
+    (r.flow for r in _edge.runners.values()), None
 )
 
 # ── Register routers ──────────────────────────────────────────────────────────
@@ -182,35 +191,35 @@ from api.routes.cameras import router as cameras_router  # noqa: E402
 from api.routes.live_results import router as live_results_router  # noqa: E402
 from api.routes.local_inference import router as local_inference_router  # noqa: E402
 from api.routes.metrics_extra import router as metrics_extra_router  # noqa: E402
-from api.routes.pipeline import _get_manager as _pipeline_get_manager  # noqa: E402
-from api.routes.pipeline import router as pipeline_router  # noqa: E402
-from api.routes.snapshot import router as snapshot_router  # noqa: E402
+from api.routes.settings import router as settings_router  # noqa: E402
+from api.routes.stream import router as stream_router  # noqa: E402
 from api.routes.use_cases import router as use_cases_router  # noqa: E402
 from vision.webrtc.signaling import router as webrtc_router  # noqa: E402
 
-app.dependency_overrides[_pipeline_get_manager] = lambda: _pipeline_manager
-
 app.include_router(cameras_router)
 app.include_router(use_cases_router)
-app.include_router(snapshot_router)
+app.include_router(stream_router)
+app.include_router(settings_router)
 app.include_router(metrics_extra_router)
 app.include_router(artifacts_router)
-app.include_router(pipeline_router)
 app.include_router(local_inference_router)
 app.include_router(live_results_router)
 app.include_router(webrtc_router)
 
-# ── Existing routes ───────────────────────────────────────────────────────────
+# ── Core routes ───────────────────────────────────────────────────────────────
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": "0.1.0"}
+    return {"status": "ok", "version": app.version}
 
 
 @app.get("/runtime")
 def runtime():
-    return _runtime.to_dict()
+    data = _runtime.to_dict()
+    data["event_count"] = _store.count_events()
+    data["camera_count"] = len(_edge.sessions)
+    return data
 
 
 @app.get("/metrics/inference")
@@ -240,7 +249,8 @@ class EventIngestRequest(BaseModel):
 
 
 @app.post("/events", status_code=201)
-def ingest_event(req: EventIngestRequest) -> TrafficEvent:
+def ingest_event(req: EventIngestRequest) -> dict:
+    """External ingest (tests, replay tools). Live pack events are written by the runtime."""
     event = TrafficEvent(
         event_id=str(uuid.uuid4()),
         camera_id=req.camera_id,
@@ -256,37 +266,70 @@ def ingest_event(req: EventIngestRequest) -> TrafficEvent:
         vlm_model=req.vlm_model,
         metadata=req.metadata,
     )
-    _store.add_event(event)
-    _known_cameras.add(event.camera_id)
-    _runtime.camera_count = len(_known_cameras)
+    payload = _store.add_event(event, pack_id=req.metadata.get("pack_id"))
+    _publisher.publish_event(event)
     _runtime.event_count += 1
     if req.inference_latency_ms is not None:
         _inference_metrics.record(req.inference_latency_ms)
-    return event
+    return payload
 
 
 @app.get("/events")
 def list_events(
     camera_id: str | None = None,
     cursor: str | None = None,
+    before: str | None = None,
     limit: int = 50,
-) -> list[TrafficEvent]:
-    events = _store.list_events(camera_id=camera_id)
-    if cursor:
-        try:
-            idx = next(i for i, e in enumerate(events) if e.event_id == cursor)
-            events = events[idx + 1 :]
-        except StopIteration:
-            events = []
-    return events[:limit]
+    review_only: bool = False,
+    review_status: str | None = None,
+    event_type: str | None = None,
+) -> list[dict]:
+    """Newest first. ``before`` (ISO timestamp) pages backwards; ``cursor`` is the
+    legacy event-id form of the same thing."""
+    if cursor and not before:
+        anchor = _store.get_event(cursor)
+        before = anchor["timestamp"] if anchor else None
+        if anchor is None:
+            return []
+    return _store.list_events(
+        camera_id=camera_id, limit=limit, before=before, review_only=review_only,
+        review_status=review_status, event_type=event_type,
+    )
+
+
+@app.get("/events/review-queue")
+def review_queue(status: str = "pending", limit: int = 100) -> dict:
+    if status not in REVIEW_STATUSES:
+        raise HTTPException(status_code=422, detail=f"status must be one of {REVIEW_STATUSES}")
+    return {
+        "counts": _store.review_counts(),
+        "events": _store.list_events(limit=limit, review_only=True, review_status=status),
+    }
 
 
 @app.get("/events/{event_id}")
-def get_event(event_id: str) -> TrafficEvent:
+def get_event(event_id: str) -> dict:
     event = _store.get_event(event_id)
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
     return event
+
+
+class ReviewRequest(BaseModel):
+    status: str
+    note: str = ""
+
+
+@app.post("/events/{event_id}/review")
+def review_event(event_id: str, req: ReviewRequest) -> dict:
+    if req.status not in REVIEW_STATUSES or req.status == "none":
+        raise HTTPException(
+            status_code=422, detail="status must be pending, confirmed or dismissed"
+        )
+    updated = _store.review_event(event_id, req.status, req.note)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Event not found")
+    return updated
 
 
 class OpenIncidentRequest(BaseModel):
@@ -304,6 +347,7 @@ def open_incident(req: OpenIncidentRequest) -> IntersectionIncident:
         severity=req.severity,
         summary=req.summary,
     )
+    _publisher.publish_incident(incident)
     _runtime.incident_count += 1
     return incident
 
@@ -339,6 +383,7 @@ def update_incident(
     )
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
+    _publisher.publish_incident(incident)
     return incident
 
 
@@ -367,20 +412,43 @@ def transition_incident(
     )
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
+    _publisher.publish_incident(incident)
     return incident
 
 
-# ── Serve compiled frontend (must be last — catch-all for SPA routing) ────────
+# ── Serve compiled frontend ───────────────────────────────────────────────────
+# Some UI routes share a path with API routes (/cameras, /events). A browser
+# navigation asks for text/html, a fetch() does not, so the middleware serves
+# the SPA shell for HTML navigations and leaves API calls untouched.
 _web_dist = Path(__file__).parent.parent / "web" / "dist"
 if _web_dist.exists():
-    # Serve static assets (JS/CSS) under /assets
     app.mount(
         "/assets",
         StaticFiles(directory=str(_web_dist / "assets")),
         name="web-assets",
     )
 
+    @app.middleware("http")
+    async def spa_for_html_navigation(request: Request, call_next):  # type: ignore[no-untyped-def]
+        accept = request.headers.get("accept", "")
+        if (
+            request.method == "GET"
+            and "text/html" in accept
+            and not request.url.path.startswith(("/assets", "/docs", "/openapi.json", "/redoc"))
+        ):
+            return _spa_shell()
+        return await call_next(request)
+
     @app.get("/", include_in_schema=False)
     @app.get("/{path:path}", include_in_schema=False)
     async def spa_fallback(path: str = "") -> FileResponse:
-        return FileResponse(str(_web_dist / "index.html"))
+        return _spa_shell()
+
+
+def _spa_shell() -> FileResponse:
+    # The shell shares URLs with JSON routes; without these headers the browser
+    # would reuse the cached HTML navigation response for a later fetch().
+    return FileResponse(
+        str(_web_dist / "index.html"),
+        headers={"Cache-Control": "no-store", "Vary": "Accept"},
+    )

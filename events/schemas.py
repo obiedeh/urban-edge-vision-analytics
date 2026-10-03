@@ -44,6 +44,7 @@ class Direction(BaseModel):
 
 
 class TrafficEvent(BaseModel):
+    schema_version: Literal[1] = 1
     event_id: str
     camera_id: str
     event_type: EventType
@@ -120,6 +121,7 @@ class IncidentStatus(StrEnum):
 
 
 class IntersectionIncident(BaseModel):
+    schema_version: Literal[1] = 1
     incident_id: str
     camera_id: str
     event_ids: list[str]

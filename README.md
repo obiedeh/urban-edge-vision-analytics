@@ -48,7 +48,8 @@ This repository includes a runnable engineering scaffold:
 - Inference latency telemetry with p95/p99 tracking
 - FastAPI backend: event ingestion, incident lifecycle, runtime metrics
 - Operator incident workflow: open → under_review → resolved / dismissed
-- Configs for local dev and Jetson Orin deployment planning
+- Configs for local dev and Jetson Orin deployment planning, validated by `api/config.py`
+- Optional edge-to-cloud publishing (`cloud/`), off by default
 - Test suite: schemas, flow analytics, event lifecycle, API smoke
 
 ---
@@ -91,8 +92,9 @@ api/          FastAPI application and routes
 vision/       Frame schemas, detection adapter interface, source loaders
 events/       Traffic event and incident schemas, event store lifecycle
 analytics/    Flow window analytics, congestion detection, pipeline metrics
-telemetry/    Inference latency metrics, runtime snapshot
-configs/      Local and Jetson JSON configs
+telemetry/    Inference latency metrics, runtime snapshot, telemetry contract
+cloud/        Edge-to-cloud publishers (null, file, IoT Core), envelope contract
+configs/      Local and Jetson JSON configs (incl. cloud section)
 examples/     Sample payloads
 docs/         Architecture and roadmap
 tests/        Unit and smoke tests
@@ -276,6 +278,31 @@ python examples/generate_mock_report.py --output examples/mock_inference_report.
 The generated report is committed at `examples/mock_inference_report.json`. It proves the current mock-frame pipeline executes and summarizes detections, class counts, and congestion windows. It does not claim real camera accuracy, Jetson latency, or automated enforcement readiness.
 
 For the reviewer-facing deliverables checklist, see [PORTFOLIO_DELIVERABLES.md](PORTFOLIO_DELIVERABLES.md).
+
+---
+
+## Edge-to-cloud (AWS)
+
+Jetson nodes will publish events, incidents and telemetry to AWS IoT Core;
+raw video stays on the device. Publishing is optional, config-driven and off
+by default (`cloud.enabled: false`), so the edge app runs with no network and
+no AWS account. Design, contract and an offline demo: [docs/cloud-architecture.md](docs/cloud-architecture.md).
+
+| Phase | Scope | Status |
+|---|---|---|
+| 0 | `cloud/` publisher interface, `NullPublisher` + `FilePublisher` (JSONL), envelope `{schema_version, thing_name, sent_at, kind, payload}` serialized from the Pydantic schemas, wired behind `cloud.enabled` | Done |
+| 1 | `IotCorePublisher` (MQTT5, QoS 1, bounded queue, retry/backoff, background thread, fake-client tests), `scripts/provision_device.sh`, optional extra `.[cloud]` | Skeleton done; CDK `infra/iot_stack.py` and a live Jetson run pending |
+| 2 | IoT rules to Timestream for InfluxDB, DynamoDB incidents, Firehose to S3, SNS alerts, Athena | Planned |
+| 3 | Greengrass v2 component recipes, stream manager store-and-forward | Planned |
+| 4 | Managed Grafana dashboard, FastAPI on ECS Fargate behind API Gateway + Cognito | Planned |
+| 5 | Fleet indexing, Device Defender, CloudWatch alarms | Optional |
+
+Offline demo in one line (then `tail -f /tmp/urban-edge-cloud.jsonl` and post to `/events`):
+
+```bash
+URBAN_EDGE_CLOUD_ENABLED=true URBAN_EDGE_CLOUD_PUBLISHER=file \
+URBAN_EDGE_CLOUD_FILE_PATH=/tmp/urban-edge-cloud.jsonl uvicorn api.main:app --port 8080
+```
 
 ---
 

@@ -12,5 +12,13 @@
       "height": 1080,
       "fps": 10
     }
-  ]
+  ],
+  "cloud": {
+    "enabled": false,
+    "publisher": "null",
+    "file_path": null,
+    "thing_name": "urban-edge-local",
+    "schema_version": 1,
+    "telemetry_interval_s": 30
+  }
 }

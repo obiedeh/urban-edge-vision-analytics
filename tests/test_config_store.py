@@ -13,8 +13,9 @@ import pytest
 @pytest.fixture
 def store(tmp_path):
     from store.config_store import ConfigStore
+    from store.secrets import SecretBox
 
-    return ConfigStore(str(tmp_path / "test.sqlite"))
+    return ConfigStore(str(tmp_path / "test.sqlite"), secrets=SecretBox(key_file=tmp_path / "k"))
 
 
 def run(coro):
@@ -31,7 +32,7 @@ def test_upsert_and_list_cameras(store) -> None:
     run(store.upsert_camera({"id": "cam-1", "name": "Test Camera"}))
     cameras = run(store.list_cameras())
     assert len(cameras) == 1
-    assert cameras[0]["id"] == "cam-1"
+    assert cameras[0].id == "cam-1"
 
 
 def test_upsert_camera_idempotent(store) -> None:
@@ -39,7 +40,7 @@ def test_upsert_camera_idempotent(store) -> None:
     run(store.upsert_camera({"id": "cam-1", "name": "Updated"}))
     cameras = run(store.list_cameras())
     assert len(cameras) == 1
-    assert cameras[0]["name"] == "Updated"
+    assert cameras[0].name == "Updated"
 
 
 def test_get_camera_not_found(store) -> None:

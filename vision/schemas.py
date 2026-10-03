@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -24,6 +25,7 @@ class BoundingBox(BaseModel):
 
 
 class VehicleDetection(BaseModel):
+    schema_version: Literal[1] = 1
     track_id: str
     vehicle_class: VehicleClass
     bounding_box: BoundingBox
@@ -33,6 +35,7 @@ class VehicleDetection(BaseModel):
 
 
 class InferenceFrame(BaseModel):
+    schema_version: Literal[1] = 1
     frame_id: str
     camera_id: str
     timestamp_ms: int
