@@ -12,12 +12,14 @@ export const EVENT_LABELS: Record<string, string> = {
   person_activity:      "Person activity",
   speed_violation:      "Speed violation",
   stop_sign_violation:  "Stop-sign compliance",
+  vehicle_count:        "Vehicle counted",
 };
 
 export const PACK_LABELS: Record<string, string> = {
   moving_object: "Moving Object",
   speed_violation: "Speed Violation",
   stop_sign: "Stop Sign",
+  vehicle_count: "Vehicle count",
 };
 
 export function eventLabel(evt: TrafficEvent): string {
@@ -73,6 +75,13 @@ export function EventPackFields({ evt: raw, className }: { evt: TrafficEvent; cl
     );
     if (typeof evt.posted_speed === "number") parts.push(<Kv key="posted" k="posted" v={`${evt.posted_speed.toFixed(0)} ${unit}`} />);
     if (typeof evt.exceedance === "number") parts.push(<Kv key="exc" k="over by" v={`${evt.exceedance > 0 ? "+" : ""}${evt.exceedance.toFixed(1)} ${unit}`} />);
+  }
+
+  // vehicle_count pack: class + operator direction label + raw crossing (A→B / B→A)
+  if (evt.event_type === "vehicle_count" || evt.crossing) {
+    if (evt.vehicle_type) parts.push(<Kv key="vtype" k="type" v={evt.vehicle_type} />);
+    if (evt.direction_label) parts.push(<Kv key="dlabel" k="direction" v={evt.direction_label} />);
+    if (evt.crossing) parts.push(<Kv key="crossing" k="crossing" v={evt.crossing === "a_to_b" ? "A→B" : evt.crossing === "b_to_a" ? "B→A" : evt.crossing} />);
   }
 
   if (evt.person_descriptor) parts.push(<Kv key="person" k="person" v={evt.person_descriptor} />);

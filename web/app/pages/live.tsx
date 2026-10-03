@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, type Camera, type CameraState, type TrafficEvent } from "@/lib/api";
+import { api, type Camera, type CameraState, type CountSummary, type Point, type TrafficEvent } from "@/lib/api";
 import { useLiveResults } from "@/lib/live-results";
 import { RuntimeStatusBar, useRuntimeStatus } from "@/components/runtime-status-bar";
 import { LiveVideo } from "@/components/live-video";
@@ -8,9 +8,12 @@ import { CameraStateChip, ProfileChip, SeverityChip } from "@/components/status-
 import { EventPackFields, eventLabel } from "@/components/event-fields";
 import { CredibilityBanner } from "@/components/credibility-banner";
 import { cn, formatMs, formatSeconds, formatTs } from "@/lib/utils";
-import { Radio, WifiOff, Camera as CameraIcon } from "lucide-react";
+import { Radio, WifiOff, Camera as CameraIcon, Car } from "lucide-react";
 
 const EVENTS_POLL_MS = 3_000;
+const COUNTS_POLL_MS = 5_000;
+const COUNTS_HOURS = 24;
+const HOURLY_BARS = 12;
 const MAX_EVENTS = 50;
 // Browsers allow ~6 concurrent HTTP/1.1 connections per host. The main MJPEG stream and the
 // SSE results feed hold two; keep the live thumbnails to two more so polling fetches never starve.
@@ -76,6 +79,98 @@ function EventsPanel({ cameraId }: { cameraId: string }) {
   );
 }
 
+// ── Vehicle counts card ───────────────────────────────────────────────────────
+
+/** Last N UTC hour buckets ("YYYY-MM-DDTHH"), oldest first, matching the API's hourly keys. */
+function recentHourBuckets(n: number): string[] {
+  const now = Date.now();
+  return Array.from({ length: n }, (_, i) => new Date(now - (n - 1 - i) * 3_600_000).toISOString().slice(0, 13));
+}
+
+function VehicleCountsCard({ cameraId, hasBinding }: { cameraId: string; hasBinding: boolean }) {
+  const [counts, setCounts] = useState<CountSummary | null>(null);
+
+  useEffect(() => {
+    let dead = false;
+    setCounts(null);
+    const load = async () => {
+      try { const c = await api.cameras.counts(cameraId, COUNTS_HOURS); if (!dead) setCounts(c); }
+      catch { /* keep the last summary */ }
+    };
+    load();
+    const t = setInterval(load, COUNTS_POLL_MS);
+    return () => { dead = true; clearInterval(t); };
+  }, [cameraId]);
+
+  if (!hasBinding && !(counts && counts.total > 0)) return null;
+
+  const byHour = new Map((counts?.hourly ?? []).map((h) => [h.hour, h]));
+  const buckets = recentHourBuckets(HOURLY_BARS).map((hour) => ({ hour, total: byHour.get(hour)?.total ?? 0 }));
+  const maxHour = Math.max(1, ...buckets.map((b) => b.total));
+  const types = Object.entries(counts?.by_type ?? {}).sort((a, b) => b[1] - a[1]);
+  const dirs = Object.entries(counts?.by_direction ?? {}).sort((a, b) => b[1] - a[1]);
+
+  return (
+    <div className="rounded-lg border border-border bg-card overflow-hidden">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border">
+        <div className="flex items-center gap-2">
+          <Car className="h-3.5 w-3.5 text-amber-400" />
+          <span className="text-xs font-semibold text-foreground">Vehicle counts</span>
+        </div>
+        <Link to={`/events?camera_id=${encodeURIComponent(cameraId)}&event_type=vehicle_count`} className="text-[10px] text-primary/80 hover:text-primary">Count events</Link>
+      </div>
+      {!counts ? (
+        <div className="px-4 py-6 text-center text-xs text-muted-foreground animate-pulse">Loading…</div>
+      ) : (
+        <div className="px-3 py-3 space-y-3 text-xs">
+          <div className="flex items-baseline gap-4 tabular-nums">
+            <span><b className="text-xl font-semibold text-foreground">{counts.total}</b> <span className="text-muted-foreground">last {counts.window_hours}h</span></span>
+            <span className="text-muted-foreground">all-time <b className="text-foreground font-medium">{counts.all_time_total}</b></span>
+          </div>
+
+          {types.length > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {types.map(([t, n]) => (
+                <span key={t} className="inline-flex items-center gap-1 rounded-full border border-border bg-secondary/40 px-2 py-0.5 text-[11px] tabular-nums">
+                  <span className="text-muted-foreground">{t}</span><b className="text-foreground font-medium">{n}</b>
+                </span>
+              ))}
+            </div>
+          )}
+
+          {dirs.length > 0 && (
+            <div className="space-y-1">
+              {dirs.map(([d, n]) => (
+                <div key={d} className="flex items-center gap-2 tabular-nums">
+                  <span className="w-28 truncate font-mono text-[11px] text-foreground" title={d}>{d}</span>
+                  <div className="flex-1 h-1.5 rounded bg-secondary/40 overflow-hidden"><div className="h-full bg-amber-400/70" style={{ width: `${Math.max(2, (n / Math.max(1, counts.total)) * 100)}%` }} /></div>
+                  <b className="w-8 text-right text-foreground font-medium">{n}</b>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="space-y-1">
+            <p className="text-[10px] text-muted-foreground">Last {HOURLY_BARS} hours (UTC)</p>
+            <div className="flex items-end gap-0.5 h-10">
+              {buckets.map((b) => (
+                <div key={b.hour} title={`${b.hour.replace("T", " ")}:00 UTC · ${b.total}`} className="flex-1 flex flex-col justify-end h-full">
+                  <div className={cn("w-full rounded-sm", b.total > 0 ? "bg-amber-400/80" : "bg-secondary/40")} style={{ height: `${b.total > 0 ? Math.max(8, (b.total / maxHour) * 100) : 4}%` }} />
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-between text-[9px] text-muted-foreground/70 font-mono tabular-nums">
+              <span>{buckets[0].hour.slice(11)}:00</span><span>{buckets[buckets.length - 1].hour.slice(11)}:00</span>
+            </div>
+          </div>
+
+          {counts.total === 0 && <p className="text-[10px] text-muted-foreground/70">No crossings in the window yet — vehicles are counted when their track crosses the A→B line.</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Root page ─────────────────────────────────────────────────────────────────
 
 export function LivePage() {
@@ -132,6 +227,27 @@ export function LivePage() {
 
   const focused = liveCameras.find((c) => c.id === focusId) ?? null;
   const others = liveCameras.filter((c) => c.id !== focusId);
+
+  // vehicle_count binding of the focused camera: gates the counts card and supplies the count line for the overlay.
+  const [countLine, setCountLine] = useState<Point[] | null>(null);
+  const [hasCountBinding, setHasCountBinding] = useState(false);
+  useEffect(() => {
+    if (!focusId) return;
+    let dead = false;
+    setCountLine(null); setHasCountBinding(false);
+    const load = async () => {
+      try {
+        const vc = (await api.cameras.bindings(focusId)).find((b) => b.pack_id === "vehicle_count");
+        if (dead) return;
+        setHasCountBinding(Boolean(vc));
+        const line = vc?.parameters?.count_line;
+        setCountLine(Array.isArray(line) && line.length >= 2 ? (line as Point[]) : null);
+      } catch { /* leave as is */ }
+    };
+    load();
+    const t = setInterval(load, 30_000);
+    return () => { dead = true; clearInterval(t); };
+  }, [focusId]);
   const runtimeById = useMemo(() => new Map((runtime?.cameras ?? []).map((c) => [c.camera_id, c])), [runtime]);
   const isMock = runtime?.model?.backend === "mock";
   const focusedRuntime = focused ? runtimeById.get(focused.id) ?? null : null;
@@ -195,7 +311,7 @@ export function LivePage() {
                   </div>
                   <Link to={`/studio?camera_id=${encodeURIComponent(focused.id)}`} className="text-[10px] text-primary/80 hover:text-primary">Studio</Link>
                 </div>
-                <LiveVideo camera={focused} result={focusedResult} runtime={focusedRuntime} />
+                <LiveVideo camera={focused} result={focusedResult} runtime={focusedRuntime} countLine={countLine} />
                 {/* status strip */}
                 <div className="flex items-center gap-4 flex-wrap px-3 py-2 border-t border-border text-[11px] text-muted-foreground tabular-nums">
                   <CameraStateChip state={focusedRuntime?.state ?? focused.runtime?.state} />
@@ -242,6 +358,7 @@ export function LivePage() {
             </div>
 
             <div className="space-y-3">
+              <VehicleCountsCard cameraId={focused.id} hasBinding={hasCountBinding} />
               <EventsPanel cameraId={focused.id} />
             </div>
           </div>

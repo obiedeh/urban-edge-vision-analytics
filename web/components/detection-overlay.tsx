@@ -1,4 +1,4 @@
-import type { Detection, PackEventRef } from "@/lib/api";
+import type { Detection, PackEventRef, Point } from "@/lib/api";
 
 const LABEL_COLORS: Record<string, string> = {
   car: "#60a5fa",
@@ -24,13 +24,15 @@ interface Props {
   /** when the rendered <img>/<video> is object-contain, pass the intrinsic size to letterbox correctly */
   intrinsic?: { width: number; height: number } | null;
   stale?: boolean;
+  /** vehicle_count binding's count_line (normalized A→B), drawn as a dashed amber line */
+  countLine?: Point[] | null;
 }
 
 /**
  * SVG overlay drawing normalized (0..1) bounding boxes on top of a video element.
  * Track ids referenced by pack events are highlighted in red.
  */
-export function DetectionOverlay({ detections, packEvents = [], width, height, intrinsic, stale }: Props) {
+export function DetectionOverlay({ detections, packEvents = [], width, height, intrinsic, stale, countLine }: Props) {
   if (width <= 0 || height <= 0) return null;
 
   // Account for object-contain letterboxing.
@@ -55,6 +57,18 @@ export function DetectionOverlay({ detections, packEvents = [], width, height, i
       viewBox={`0 0 ${width} ${height}`}
       style={{ opacity: stale ? 0.45 : 1, transition: "opacity 300ms" }}
     >
+      {countLine && countLine.length >= 2 && (() => {
+        const [ax, ay] = [offX + countLine[0][0] * drawW, offY + countLine[0][1] * drawH];
+        const [bx, by] = [offX + countLine[1][0] * drawW, offY + countLine[1][1] * drawH];
+        return (
+          <g fontFamily="ui-monospace, monospace" fontSize={11} fontWeight={700}>
+            <line x1={ax} y1={ay} x2={bx} y2={by} stroke="#fbbf24" strokeWidth={2} strokeDasharray="6 4" />
+            <circle cx={ax} cy={ay} r={4} fill="#fbbf24" /><circle cx={bx} cy={by} r={4} fill="#fbbf24" />
+            <text x={ax + 7} y={ay - 6} fill="#fbbf24" stroke="#0b1220" strokeWidth={3} paintOrder="stroke">A</text>
+            <text x={bx + 7} y={by - 6} fill="#fbbf24" stroke="#0b1220" strokeWidth={3} paintOrder="stroke">B</text>
+          </g>
+        );
+      })()}
       {detections.map((d, i) => {
         const [nx, ny, nw, nh] = d.bbox;
         const x = offX + nx * drawW;
