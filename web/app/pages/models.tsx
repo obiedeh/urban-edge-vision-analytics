@@ -446,7 +446,15 @@ export function ModelsPage() {
     finally { setBusy(false); setPending(null); }
   }
 
+  const [stopArmed, setStopArmed] = useState(false);
   async function stopVllm() {
+    // Two-step: the server may be serving another app on this device.
+    if (!stopArmed) {
+      setStopArmed(true);
+      setActionMsg({ kind: "err", text: "Stopping the model server affects every app using it. Press Stop again to confirm." });
+      return;
+    }
+    setStopArmed(false);
     setBusy(true); setActionMsg(null);
     try { setVllm((prev) => prev ? { ...prev, managed_state: "stopped", running: false } : prev); await api.inference.vllm.stop(); setActionMsg({ kind: "ok", text: "Managed vLLM server stopped. Inference will report unavailable until another model is selected." }); }
     catch (e) { setActionMsg({ kind: "err", text: apiErrorMessage(e, "Stop failed") }); }

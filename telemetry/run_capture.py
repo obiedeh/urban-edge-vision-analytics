@@ -8,6 +8,13 @@ writes ``artifacts/runs/<name>/run.json`` plus a tegrastats sidecar.
 Every number in the artifact comes from the API or tegrastats; nothing is
 typed by hand. Camera credentials never appear: the artifact records the
 camera's profile, quality and masked URL only.
+
+The script never starts or stops a model server. It refuses to start unless
+the model server is healthy, aborts (writing a partial artifact marked
+failed) if the server stays down for ``--outage-abort`` seconds mid-run, and
+records every model-server event the API logged during the run. To make the
+measurement attributable, ``--pause-other-app URL`` disables the other
+app's enabled cameras for the duration and re-enables them afterwards.
 """
 from __future__ import annotations
 
@@ -146,11 +153,93 @@ def _device() -> dict[str, Any]:
     }
 
 
+class ModelServerNotReady(SystemExit):
+    pass
+
+
+def preflight(client: httpx.Client, camera_id: str) -> dict[str, Any]:
+    """Refuse to record unless the camera streams and the model server answers."""
+    status = client.get("/runtime/status").json()
+    cam = next((c for c in status["cameras"] if c["camera_id"] == camera_id), None)
+    if cam is None:
+        raise ModelServerNotReady(f"camera {camera_id} is not running on this API")
+    if cam["state"] != "streaming":
+        raise ModelServerNotReady(f"camera {camera_id} is {cam['state']}, not streaming")
+    model = status["model"]
+    if model["backend"] == "mock":
+        raise ModelServerNotReady("model backend is mock; a live run needs a real model")
+    endpoint = model["endpoint"].rstrip("/")
+    try:
+        served = httpx.get(f"{endpoint}/models", timeout=5).json().get("data", [])
+    except Exception as exc:
+        raise ModelServerNotReady(f"model server at {endpoint} is not answering: {exc}") from exc
+    ids = [m.get("id") for m in served]
+    if model["model"] not in ids:
+        raise ModelServerNotReady(f"model server serves {ids}, not {model['model']}")
+    if model["state"] == "unavailable":
+        raise ModelServerNotReady(f"model runtime reports unavailable: {model.get('last_error')}")
+    return status
+
+
+class OtherApp:
+    """Disable the other app's cameras for the run so inference load is attributable."""
+
+    def __init__(self, base_url: str | None) -> None:
+        self.base = base_url.rstrip("/") if base_url else None
+        self.paused: list[tuple[str, str]] = []  # (kind, camera_id)
+
+    def pause(self) -> list[str]:
+        if not self.base:
+            return []
+        client = httpx.Client(base_url=self.base, timeout=20)
+        # Safety Observability (/config/cameras) or another Urban Edge (/cameras).
+        for kind, path in (("safety", "/config/cameras"), ("urban-edge", "/cameras")):
+            try:
+                cams = client.get(path).json()
+            except Exception:
+                continue
+            if not isinstance(cams, list):
+                continue
+            for cam in cams:
+                cid = cam.get("camera_id") or cam.get("id")
+                if cam.get("enabled") and cid:
+                    client.post(f"{path}/{cid}/enabled", json={"enabled": False})
+                    self.paused.append((kind, cid))
+            break
+        return [cid for _, cid in self.paused]
+
+    def resume(self) -> None:
+        if not self.base or not self.paused:
+            return
+        client = httpx.Client(base_url=self.base, timeout=20)
+        for kind, cid in self.paused:
+            path = "/config/cameras" if kind == "safety" else "/cameras"
+            try:
+                client.post(f"{path}/{cid}/enabled", json={"enabled": True})
+            except Exception as exc:
+                print(f"warning: could not re-enable {cid} on {self.base}: {exc}", file=sys.stderr)
+
+
 def capture(
-    api: str, camera_id: str, duration_s: float, out_dir: Path, name: str, notes: str
+    api: str,
+    camera_id: str,
+    duration_s: float,
+    out_dir: Path,
+    name: str,
+    notes: str,
+    *,
+    other_app: str | None = None,
+    outage_abort_s: float = 60.0,
 ) -> Path:
     client = httpx.Client(base_url=api, timeout=30)
-    status0 = client.get("/runtime/status").json()
+    status0 = preflight(client, camera_id)
+    other = OtherApp(other_app)
+    paused = other.pause()
+    run_notes: list[str] = []
+    if paused:
+        run_notes.append(f"paused {len(paused)} camera(s) on {other_app} for the run: {paused}")
+    model_endpoint = status0["model"]["endpoint"].rstrip("/")
+    aborted: str | None = None
     cam0 = next((c for c in status0["cameras"] if c["camera_id"] == camera_id), None)
     if cam0 is None:
         sys.exit(f"camera {camera_id} is not running on {api}")
@@ -180,10 +269,35 @@ def capture(
     started = time.time()
     started_iso = datetime.now(UTC).isoformat()
     t.start()
+    outage_since: float | None = None
     while time.time() - started < duration_s:
         time.sleep(2.0)
         try:
             st = client.get("/runtime/status").json()
+            model_down = st["model"]["state"] == "unavailable"
+            if not model_down:
+                try:
+                    httpx.get(f"{model_endpoint}/models", timeout=3).raise_for_status()
+                except Exception:
+                    model_down = True
+            if model_down:
+                if outage_since is None:
+                    outage_since = time.time()
+                    run_notes.append(
+                        f"model server outage detected at {datetime.now(UTC).isoformat()}"
+                    )
+                elif time.time() - outage_since > outage_abort_s:
+                    aborted = (
+                        f"model server down for {int(time.time() - outage_since)} s; run aborted"
+                    )
+                    run_notes.append(aborted)
+                    print(f"ABORT: {aborted}", file=sys.stderr)
+                    break
+            elif outage_since is not None:
+                run_notes.append(
+                    f"model server recovered after {int(time.time() - outage_since)} s"
+                )
+                outage_since = None
             cam = next((c for c in st["cameras"] if c["camera_id"] == camera_id), None)
             if cam:
                 status_samples.append(
@@ -202,6 +316,9 @@ def capture(
     stop.set()
     elapsed = time.time() - started
     tegra.stop()
+    other.resume()
+    if paused:
+        run_notes.append(f"re-enabled {len(paused)} camera(s) on {other_app}")
     status1 = client.get("/runtime/status").json()
     cam1 = next((c for c in status1["cameras"] if c["camera_id"] == camera_id), cam0)
     events_after = client.get("/runtime").json().get("event_count", 0)
@@ -234,10 +351,17 @@ def capture(
                   "total_failures")
     published = cam1["frames_published"] - cam0["frames_published"]
 
+    server_events = [
+        e for e in status1.get("server_events", []) if e.get("at", "") >= started_iso
+    ]
     report = {
         "schema": SCHEMA,
         "name": name,
+        "status": "failed" if aborted else "complete",
+        "error": aborted,
         "notes": notes,
+        "run_notes": run_notes,
+        "model_server_events": server_events,
         "started_at": started_iso,
         "finished_at": datetime.now(UTC).isoformat(),
         "duration_s": round(elapsed, 2),
@@ -394,6 +518,14 @@ def main() -> None:
     parser.add_argument("--name", help="artifact name, e.g. thor-tapo-cosmos2b")
     parser.add_argument("--notes", default="")
     parser.add_argument("--out", default="artifacts/runs")
+    parser.add_argument(
+        "--pause-other-app", metavar="URL",
+        help="Disable the other app's enabled cameras for the run (e.g. http://127.0.0.1:8081)",
+    )
+    parser.add_argument(
+        "--outage-abort", type=float, default=60.0,
+        help="Abort if the model server stays down this many seconds mid-run",
+    )
     args = parser.parse_args()
     if args.annotate:
         out = annotate(args.api, Path(args.annotate))
@@ -403,10 +535,13 @@ def main() -> None:
     if not args.camera_id or not args.name:
         parser.error("--camera-id and --name are required to capture a run")
     path = capture(
-        args.api, args.camera_id, args.duration, Path(args.out) / args.name, args.name, args.notes
+        args.api, args.camera_id, args.duration, Path(args.out) / args.name, args.name, args.notes,
+        other_app=args.pause_other_app, outage_abort_s=args.outage_abort,
     )
     data = json.loads(path.read_text())
-    print(f"written {path}")
+    print(f"written {path} ({data['status']})")
+    for note in data["run_notes"]:
+        print(f"note: {note}")
     video, inf = data["video"], data["inference"]
     print(f"video: {video['display_fps_mean']} fps mean, dropped {video['frames_dropped_in_run']}")
     lat = inf["inference_latency_ms"]

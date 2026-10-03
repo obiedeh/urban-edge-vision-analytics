@@ -10,13 +10,14 @@ No credentials are required for local servers.
 """
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from api.vllm_manager import DockerLaunch, VllmServerManager, parse_local_vllm_endpoint
@@ -58,6 +59,16 @@ class VllmStartRequest(BaseModel):
     gpu_memory_utilization: float = Field(default=0.25, gt=0.05, le=0.95)
     max_model_len: int = Field(default=8192, ge=1024, le=131072)
     apply: bool = True              # also select this model in the running app
+
+
+class VllmStopRequest(BaseModel):
+    # The server may be shared with another app on the device: stopping it is
+    # deliberate, logged with the caller, never implicit.
+    confirm: bool = False
+    reason: str = ""
+
+
+logger = logging.getLogger("api.inference")
 
 
 class ApplyModelRequest(BaseModel):
@@ -778,6 +789,8 @@ async def vllm_start(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if runtime is not None:
+        runtime.note_server_event("started by operator", model=served, launcher=launcher)
     applied = None
     if req.apply:
         applied = await _apply_selection(
@@ -805,9 +818,21 @@ async def apply_model(
 
 @router.post("/vllm/stop")
 async def vllm_stop(
+    req: VllmStopRequest,
+    request: Request,
     manager: VllmServerManager = Depends(_get_vllm_manager),
+    runtime: Any = Depends(_get_runtime),
 ) -> dict:
-    """Stop the app-managed vLLM process, if one exists."""
+    """Stop the app-managed vLLM server. Requires confirm=true; the caller is logged."""
+    if not req.confirm:
+        raise HTTPException(
+            status_code=409,
+            detail="Stopping the model server affects every app using it; send confirm=true.",
+        )
+    client = request.client.host if request.client else "unknown"
+    logger.warning("vLLM stop requested by %s (%s)", client, req.reason or "no reason given")
+    if runtime is not None:
+        runtime.note_server_event("stopped by operator", client=client, reason=req.reason)
     return {"managed": True, **manager.stop()}
 
 

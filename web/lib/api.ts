@@ -660,7 +660,8 @@ export const api = {
           `/inference/vllm/models${qs({ endpoint })}`
         ),
       start: (body: VllmStartRequest) => post<VllmManaged>("/inference/vllm/start", body),
-      stop: () => post<VllmManaged>("/inference/vllm/stop", {}),
+      stop: (reason = "stopped from the Models page") =>
+        post<VllmManaged>("/inference/vllm/stop", { confirm: true, reason }),
     },
   },
 
