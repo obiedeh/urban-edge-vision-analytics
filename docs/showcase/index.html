@@ -1,8 +1,5 @@
 <title>Urban Edge Vision</title>
 <meta name="description" content="Edge vision analytics for streets and intersections on Jetson AGX Thor: camera setup in a web UI, a vision-language model on the device, use-case packs, and operator review.">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Public+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
 /* Layout: a traffic-engineering field sheet. The intersection plan is the hero; the rest reads down the page like a site survey: how it works, what each pack decides, the console, what is proven, what is next. */
 :root{
@@ -123,9 +120,18 @@ figcaption b{color:var(--ink);font-weight:600}
 section{display:flex;flex-direction:column;gap:20px}
 .head{display:flex;flex-direction:column;gap:8px}
 footer{border-top:1px solid var(--rule);padding-top:18px;display:flex;flex-wrap:wrap;gap:8px 24px;justify-content:space-between;font-size:13px;color:var(--ink-3)}
-</style>
-
-<div class="wrap">
+</style><style id="ee-theme">:root,:root:not([data-theme="light"]),:root[data-theme="dark"]{--bg:#202224;--plate:#181b1d;--ink:#eef1e8;--ink-2:#c9cfc2;--ink-3:#a3aa9c;--rule:#393d3f;--asphalt:#2b2e30;--curb:#43474a;--paint:#d8dbd4;--yellow:#e8ac1c;--amber:#ff9c59;--amber-bg:#3a2a1c;--sign:#b7f34a;--sign-bg:#b7f34a1f;--stop:#ff7a6b;--gate:#68b7ff;--count:#ff9c59;--zone:#b7f34a;--f-display:"Helvetica Neue",Helvetica,Arial,sans-serif;--f-body:"Helvetica Neue",Helvetica,Arial,sans-serif;--f-mono:ui-monospace,"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;color-scheme:dark}h1,h2,h3{font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;font-weight:500;letter-spacing:-.02em}h1{letter-spacing:-.035em}:root[data-theme="light"]{--bg:#f6f7f3;--plate:#ffffff;--ink:#1a1c1e;--ink-2:#3d4239;--ink-3:#5d6459;--rule:#d8dbd2;--asphalt:#3b403d;--curb:#c9cec8;--paint:#f3f3ee;--yellow:#e2a400;--amber:#c2560c;--amber-bg:#f8ecd0;--sign:#4d7c0f;--sign-bg:#e6f1d3;--stop:#b3261e;--gate:#1f6fd1;--count:#c2560c;--zone:#4d7c0f;--f-display:"Helvetica Neue",Helvetica,Arial,sans-serif;--f-body:"Helvetica Neue",Helvetica,Arial,sans-serif;--f-mono:ui-monospace,"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;color-scheme:light}@media print{:root,:root:not([data-theme="light"]),:root[data-theme="dark"]{--bg:#f6f7f3;--plate:#ffffff;--ink:#1a1c1e;--ink-2:#3d4239;--ink-3:#5d6459;--rule:#d8dbd2;--asphalt:#3b403d;--curb:#c9cec8;--paint:#f3f3ee;--yellow:#e2a400;--amber:#c2560c;--amber-bg:#f8ecd0;--sign:#4d7c0f;--sign-bg:#e6f1d3;--stop:#b3261e;--gate:#1f6fd1;--count:#c2560c;--zone:#4d7c0f;--f-display:"Helvetica Neue",Helvetica,Arial,sans-serif;--f-body:"Helvetica Neue",Helvetica,Arial,sans-serif;--f-mono:ui-monospace,"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;color-scheme:light}}
+body{margin:0}
+.ee-band{background:#181b1d;border-bottom:1px solid #393d3f;color:#eef1e8;font:14px/1.4 "Helvetica Neue",Helvetica,Arial,sans-serif;position:relative;z-index:50}
+.ee-band .ee-in{max-width:1120px;margin:0 auto;padding:10px 20px;display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center;justify-content:space-between}
+.ee-band a{color:#a3aa9c;text-decoration:none}.ee-band a:hover{color:#eef1e8}
+.ee-band .ee-mark{display:inline-flex;align-items:center;gap:8px;color:#eef1e8;font-weight:600;letter-spacing:-.01em}
+.ee-band .ee-mark i{display:inline-block;width:14px;height:14px;border-radius:2px;background:linear-gradient(135deg,#b7f34a 0 50%,#68b7ff 50% 100%)}
+.ee-band .ee-mark span{color:#a3aa9c;font-weight:400}.ee-band nav{display:flex;gap:16px}
+.ee-foot{border-top:1px solid #393d3f;background:#181b1d;color:#7c8378;font:13px/1.5 "Helvetica Neue",Helvetica,Arial,sans-serif}
+.ee-foot .ee-in{max-width:1120px;margin:0 auto;padding:14px 20px}.ee-foot a{color:#a3aa9c}
+@media print{.ee-band,.ee-foot{background:#fff;color:#5d6459;border-color:#d8dbd2}.ee-band .ee-mark{color:#1a1c1e}}
+</style><div class="ee-band"><div class="ee-in"><a class="ee-mark" href="https://embodiededge.ai"><i></i>EmbodiedEdge <span>Labs · Evidence</span></a><nav><a href="https://github.com/obiedeh/urban-edge-vision-analytics">Repository</a><a href="https://embodiededge.ai">Lab</a><a href="https://github.com/obiedeh">Obinna Edeh</a></nav></div></div><div class="wrap">
 
 <header>
   <div class="top">
@@ -359,3 +365,4 @@ report    direction, speed band, descriptor</div>
 </footer>
 
 </div>
+<div class="ee-foot"><div class="ee-in">An <a href="https://embodiededge.ai">EmbodiedEdge Labs</a> project. Measured on real hardware, published as found.</div></div>
