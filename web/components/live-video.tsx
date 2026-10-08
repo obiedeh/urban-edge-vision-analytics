@@ -3,9 +3,19 @@ import { api, type Camera, type InferenceResult, type Point, type RuntimeCameraS
 import { DetectionOverlay } from "@/components/detection-overlay";
 import { CameraStateChip } from "@/components/status-chip";
 import { cn, formatMs, formatSeconds } from "@/lib/utils";
-import { AlertTriangle, BrainCircuit, Video, VideoOff, Loader2, WifiOff } from "lucide-react";
+import { AlertTriangle, BrainCircuit, Video, VideoOff, Loader2, WifiOff, SwitchCamera, Lock } from "lucide-react";
 
 const STALE_RESULT_S = 8;
+const HTTPS_PORT = 8443;
+
+/** Phones and tablets: offer front/back instead of a device list. */
+const IS_MOBILE = typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+
+/** Why the browser refuses camera access here, and the URL that fixes it. */
+export function insecureContextMessage(): string {
+  const host = window.location.hostname;
+  return `Camera access needs a secure context. Open this console over HTTPS at https://${host}:${HTTPS_PORT}/ (opt-in TLS front door, see the README section "Browser camera from another device"), or on the device itself at http://localhost:8080/.`;
+}
 
 interface Props {
   camera: Camera;
@@ -69,6 +79,20 @@ export function LiveVideo({ camera, result, runtime, className, showOverlay = tr
   const sessionRef = useRef<string | null>(null);
   const [rtc, setRtc] = useState<"idle" | "connecting" | "live" | "error">("idle");
   const [rtcError, setRtcError] = useState<string | null>(null);
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+  const [deviceId, setDeviceId] = useState<string>("");
+  const [facing, setFacing] = useState<"user" | "environment">("environment");
+  const secure = typeof window !== "undefined" ? window.isSecureContext : true;
+
+  /** List video inputs; labels are only filled in once the page has camera permission. */
+  const loadDevices = useCallback(async () => {
+    if (!navigator.mediaDevices?.enumerateDevices) return;
+    try {
+      const all = await navigator.mediaDevices.enumerateDevices();
+      setDevices(all.filter((d) => d.kind === "videoinput"));
+    } catch { /* permission not granted yet */ }
+  }, []);
+  useEffect(() => { if (isWebcam && secure) void loadDevices(); }, [isWebcam, secure, loadDevices]);
 
   const stopWebcam = useCallback(async () => {
     peerRef.current?.close();
@@ -82,23 +106,26 @@ export function LiveVideo({ camera, result, runtime, className, showOverlay = tr
     setRtc("idle");
   }, []);
 
-  async function shareWebcam() {
+  async function shareWebcam(pick?: { deviceId?: string; facing?: "user" | "environment" }) {
     setRtcError(null);
     if (!window.isSecureContext) {
-      setRtc("error"); setRtcError("Webcam access needs localhost or trusted HTTPS."); return;
+      setRtc("error"); setRtcError(insecureContextMessage()); return;
     }
     if (!navigator.mediaDevices?.getUserMedia || !window.RTCPeerConnection) {
       setRtc("error"); setRtcError("This browser does not expose WebRTC camera APIs."); return;
     }
+    const chosenId = pick?.deviceId ?? deviceId;
+    const chosenFacing = pick?.facing ?? facing;
     try {
       setRtc("connecting");
       await stopWebcam();
       setRtc("connecting");
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
-        audio: false,
-      });
+      const video: MediaTrackConstraints = { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } };
+      if (chosenId) video.deviceId = { exact: chosenId };
+      else if (IS_MOBILE) video.facingMode = { ideal: chosenFacing };
+      const stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
       mediaRef.current = stream;
+      void loadDevices(); // labels become available once permission is granted
       if (videoRef.current) videoRef.current.srcObject = stream;
       const peer = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
       peerRef.current = peer;
@@ -177,36 +204,82 @@ export function LiveVideo({ camera, result, runtime, className, showOverlay = tr
         />
       )}
 
-      {/* Webcam share controls — only for browser_webrtc cameras */}
+      {/* Browser camera controls — only for browser_webrtc cameras */}
       {isWebcam && rtc !== "live" && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-muted-foreground bg-black/60">
-          {rtc === "connecting" ? (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-muted-foreground bg-black/60 px-4">
+          {!secure ? (
+            <div className="max-w-md rounded border border-yellow-500/40 bg-yellow-950/80 px-3 py-2 text-[11px] text-yellow-200 flex items-start gap-2">
+              <Lock className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+              <span>{insecureContextMessage()}</span>
+            </div>
+          ) : rtc === "connecting" ? (
             <span className="flex items-center gap-2 text-xs"><Loader2 className="h-4 w-4 animate-spin" /> Connecting…</span>
           ) : (
-            <button
-              type="button"
-              onClick={shareWebcam}
-              className="inline-flex items-center gap-2 rounded border border-purple-400/50 bg-purple-500/15 px-3 py-2 text-xs font-semibold text-purple-200 hover:bg-purple-500/25"
-            >
-              <Video className="h-3.5 w-3.5" /> Share webcam
-            </button>
+            <>
+              {IS_MOBILE ? (
+                <div className="flex items-center gap-2 text-xs">
+                  <button type="button" onClick={() => setFacing("user")} className={cn("rounded border px-2 py-1", facing === "user" ? "border-purple-400/60 text-purple-200 bg-purple-500/15" : "border-border text-muted-foreground")}>Front camera</button>
+                  <button type="button" onClick={() => setFacing("environment")} className={cn("rounded border px-2 py-1", facing === "environment" ? "border-purple-400/60 text-purple-200 bg-purple-500/15" : "border-border text-muted-foreground")}>Back camera</button>
+                </div>
+              ) : devices.length > 0 && (
+                <select
+                  value={deviceId}
+                  onChange={(e) => setDeviceId(e.target.value)}
+                  className="rounded border border-border bg-background px-2 py-1 text-xs text-foreground max-w-xs"
+                  aria-label="Camera"
+                >
+                  <option value="">Default camera</option>
+                  {devices.map((d, i) => <option key={d.deviceId || i} value={d.deviceId}>{d.label || `Camera ${i + 1}`}</option>)}
+                </select>
+              )}
+              <button
+                type="button"
+                onClick={() => void shareWebcam()}
+                className="inline-flex items-center gap-2 rounded border border-purple-400/50 bg-purple-500/15 px-3 py-2 text-xs font-semibold text-purple-200 hover:bg-purple-500/25"
+              >
+                <Video className="h-3.5 w-3.5" /> Share camera
+              </button>
+            </>
           )}
-          {rtcError && <span className="text-[10px] text-red-400 max-w-xs text-center px-3">{rtcError}</span>}
-          {!rtcError && rtc === "idle" && (
-            <span className="text-[10px] text-muted-foreground/70 max-w-xs text-center px-3">
-              Your browser's camera is sent to the server as this camera's feed. Inference overlays appear here.
+          {rtcError && <span className="text-[10px] text-red-400 max-w-md text-center">{rtcError}</span>}
+          {!rtcError && rtc === "idle" && secure && (
+            <span className="text-[10px] text-muted-foreground/70 max-w-xs text-center">
+              This browser's camera is sent to the server as this camera's feed. Inference overlays appear here.
+              {!IS_MOBILE && devices.length > 0 && !devices[0].label ? " Camera names appear after the first share." : ""}
             </span>
           )}
         </div>
       )}
       {isWebcam && rtc === "live" && showOverlay && (
-        <button
-          type="button"
-          onClick={() => void stopWebcam()}
-          className="absolute right-2 top-2 inline-flex items-center gap-1 rounded border border-border bg-black/70 px-2 py-1 text-[10px] text-foreground hover:border-red-400/60"
-        >
-          <VideoOff className="h-3 w-3" /> Stop sharing
-        </button>
+        <div className="absolute right-2 top-2 flex items-center gap-1">
+          {IS_MOBILE ? (
+            <button
+              type="button"
+              onClick={() => { const next = facing === "user" ? "environment" : "user"; setFacing(next); setDeviceId(""); void shareWebcam({ facing: next, deviceId: "" }); }}
+              className="inline-flex items-center gap-1 rounded border border-border bg-black/70 px-2 py-1 text-[10px] text-foreground hover:border-purple-400/60"
+              title="Switch between front and back camera"
+            >
+              <SwitchCamera className="h-3 w-3" /> Flip
+            </button>
+          ) : devices.length > 1 && (
+            <select
+              value={deviceId}
+              onChange={(e) => { setDeviceId(e.target.value); void shareWebcam({ deviceId: e.target.value }); }}
+              className="rounded border border-border bg-black/70 px-1.5 py-1 text-[10px] text-foreground max-w-[180px]"
+              aria-label="Switch camera"
+            >
+              <option value="">Default camera</option>
+              {devices.map((d, i) => <option key={d.deviceId || i} value={d.deviceId}>{d.label || `Camera ${i + 1}`}</option>)}
+            </select>
+          )}
+          <button
+            type="button"
+            onClick={() => void stopWebcam()}
+            className="inline-flex items-center gap-1 rounded border border-border bg-black/70 px-2 py-1 text-[10px] text-foreground hover:border-red-400/60"
+          >
+            <VideoOff className="h-3 w-3" /> Stop sharing
+          </button>
+        </div>
       )}
 
       {/* No-signal placeholder (video element stays mounted underneath) */}

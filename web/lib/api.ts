@@ -78,7 +78,21 @@ export type CameraState =
   | "streaming"
   | "reconnecting"
   | "error"
-  | "stopped";
+  | "stopped"
+  /** a play-once uploaded video reached its last frame */
+  | "ended";
+
+/** How the runtime captures frames for a profile. */
+export type Connector = "network" | "rtsp_url" | "usb" | "upload" | "browser" | "synthetic";
+
+/** Where the frames behind an event, result or run came from. */
+export type SourceKind =
+  | "live_rtsp"
+  | "usb"
+  | "browser"
+  | "uploaded_recorded"
+  | "uploaded_generated"
+  | "synthetic";
 
 export interface CameraProfile {
   model_type: string;
@@ -90,8 +104,52 @@ export interface CameraProfile {
   requires_auth: boolean;
   requires_host: boolean;
   notes: string;
+  connector: Connector;
   example_main_path: string;
   example_sub_path: string;
+}
+
+export type Playback = "loop" | "once";
+export type UploadSourceKind = "recorded" | "generated";
+
+/** An uploaded video file (GET /cameras/uploads). */
+export interface UploadRecord {
+  id: string;
+  filename: string;
+  stored_name: string;
+  content_type: string;
+  size_bytes: number;
+  sha256: string;
+  source_kind: UploadSourceKind;
+  duration_s: number | null;
+  width: number | null;
+  height: number | null;
+  fps: number | null;
+  codec: string | null;
+  frames: number | null;
+  created_at: string | null;
+  /** cameras currently playing this file */
+  camera_ids: string[];
+}
+
+export interface UsbMode {
+  pixel_format: string;
+  width: number;
+  height: number;
+  fps: number[];
+}
+
+export interface UsbDevice {
+  path: string;
+  name: string;
+  modes: UsbMode[];
+  error: string | null;
+}
+
+export interface UsbDevicesResponse {
+  devices: UsbDevice[];
+  /** set when no device was found */
+  note: string | null;
 }
 
 export interface CameraRuntime {
@@ -104,6 +162,8 @@ export interface CameraRuntime {
   frames_dropped: number;
   decode_errors: number;
   reconnects: number;
+  /** uploaded video: times it wrapped to the first frame */
+  loops: number;
   codec: string | null;
   source_width: number | null;
   source_height: number | null;
@@ -132,6 +192,21 @@ export interface Camera {
   masked_url: string;
   created_at: string | null;
   updated_at: string | null;
+  connector: Connector;
+  /** rtsp_url profile: the pasted link with credentials removed */
+  source_url: string;
+  /** usb profile */
+  device: string;
+  capture_width: number | null;
+  capture_height: number | null;
+  capture_fps: number | null;
+  /** V4L2 pixel format (fourcc) of the chosen mode, e.g. MJPG; blank = driver default */
+  capture_format: string;
+  /** uploaded_video profile */
+  upload_id: string;
+  playback: Playback;
+  upload: UploadRecord | null;
+  source_kind: SourceKind;
   runtime: CameraRuntime | null;
 }
 
@@ -148,6 +223,26 @@ export interface CameraIn {
   rtsp_transport: "tcp" | "udp";
   enabled: boolean;
   show_on_live: boolean;
+  source_url?: string;
+  device?: string;
+  capture_width?: number | null;
+  capture_height?: number | null;
+  capture_fps?: number | null;
+  capture_format?: string;
+  upload_id?: string;
+  playback?: Playback;
+}
+
+/** Turn a saved camera back into the update payload (password blank keeps the stored one). */
+export function cameraToIn(c: Camera): CameraIn {
+  return {
+    name: c.name, profile: c.profile, host: c.host, port: c.port, username: c.username, password: "",
+    stream_path: c.stream_path, stream_quality: c.stream_quality, channel: c.channel,
+    rtsp_transport: c.rtsp_transport, enabled: c.enabled, show_on_live: c.show_on_live,
+    source_url: c.source_url, device: c.device, capture_width: c.capture_width,
+    capture_height: c.capture_height, capture_fps: c.capture_fps, capture_format: c.capture_format,
+    upload_id: c.upload_id, playback: c.playback,
+  };
 }
 
 export type ProbeStage =
@@ -157,6 +252,7 @@ export type ProbeStage =
   | "codec"
   | "timeout"
   | "decode"
+  | "device"
   | "url"
   | "ok";
 
@@ -245,6 +341,7 @@ export interface InferenceResult {
   event: TrafficEvent | null;
   metadata: {
     status: InferenceStatus;
+    source_kind?: SourceKind | null;
     detections: Detection[];
     frame_seq?: number;
     frame_size?: [number, number];
@@ -335,6 +432,7 @@ export interface ModelStatus {
 export interface RuntimeCameraStatus extends CameraRuntime {
   name: string;
   profile: string | null;
+  source_kind: SourceKind | null;
   packs: {
     active_packs: string[];
     tracks: number;
@@ -447,6 +545,8 @@ export type ReviewStatus = "none" | "pending" | "confirmed" | "dismissed";
 export interface TrafficEvent {
   event_id: string;
   camera_id: string;
+  /** where the frames came from; null on events older than the field */
+  source_kind?: SourceKind | null;
   event_type: string;
   severity: "info" | "warning" | "critical" | string;
   confidence: number;
@@ -566,6 +666,30 @@ export const api = {
     remove: (id: string) => del(`/cameras/${encodeURIComponent(id)}`),
     setEnabled: (id: string, enabled: boolean) =>
       post<Camera>(`/cameras/${encodeURIComponent(id)}/enabled`, { enabled }),
+    /** reconnect a stream or replay a play-once video */
+    restart: (id: string) => post<Camera>(`/cameras/${encodeURIComponent(id)}/restart`, {}),
+    usbDevices: () => get<UsbDevicesResponse>("/cameras/usb-devices"),
+    uploads: {
+      list: () => get<UploadRecord[]>("/cameras/uploads"),
+      get: (id: string) => get<UploadRecord>(`/cameras/uploads/${encodeURIComponent(id)}`),
+      remove: (id: string) => del(`/cameras/uploads/${encodeURIComponent(id)}`),
+      /** Raw-body upload (no multipart) with progress; resolves to the stored record. */
+      upload: (file: File, sourceKind: UploadSourceKind, onProgress?: (fraction: number) => void) =>
+        new Promise<UploadRecord>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open("POST", `${BASE}/cameras/uploads${qs({ filename: file.name, source_kind: sourceKind })}`);
+          xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+          xhr.upload.onprogress = (e) => { if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total); };
+          xhr.onerror = () => reject(new Error("Upload failed (network error)"));
+          xhr.onload = () => {
+            let body: unknown = {};
+            try { body = JSON.parse(xhr.responseText); } catch { /* non-JSON error body */ }
+            if (xhr.status >= 200 && xhr.status < 300) resolve(body as UploadRecord);
+            else reject(new ApiError(xhr.status, body));
+          };
+          xhr.send(file);
+        }),
+    },
     testUnsaved: (body: CameraIn & { camera_id?: string }) =>
       post<CameraTestResult>("/cameras/test", body),
     testSaved: (id: string) => post<CameraTestResult>(`/cameras/${encodeURIComponent(id)}/test`, {}),
