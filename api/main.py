@@ -11,7 +11,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 
@@ -48,7 +50,7 @@ _publisher = build_publisher(
 )
 _store_path = os.getenv("STORE_PATH", "store/urbanvision.sqlite")
 _secrets = SecretBox()
-_config_store = ConfigStore(_store_path, secrets=_secrets)
+_config_store = ConfigStore(_store_path, secrets=_secrets, upload_dir=_settings.uploads.dir)
 _store = SqliteEventStore(_store_path)
 _inference_metrics = InferenceMetrics()
 _runtime = RuntimeSnapshot()
@@ -152,9 +154,22 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Urban Edge Vision Analytics",
     description="Operational observability API for edge vision inference at smart intersections",
-    version="0.2.0",
+    version="0.3.0",
     lifespan=lifespan,
 )
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """Standard 422 body, except camera routes drop the echoed input.
+
+    A rejected camera payload may hold a password or a pasted RTSP link with
+    credentials; those must never come back in a response.
+    """
+    errors = exc.errors()
+    if request.url.path.startswith("/cameras"):
+        errors = [{k: v for k, v in e.items() if k not in {"input", "url", "ctx"}} for e in errors]
+    return JSONResponse(status_code=422, content={"detail": jsonable_encoder(errors)})
 
 # ── Wire dependency overrides ─────────────────────────────────────────────────
 
@@ -168,6 +183,7 @@ from vision.webrtc import signaling as _webrtc_routes  # noqa: E402
 
 app.dependency_overrides[_cam_routes._get_store] = lambda: _config_store
 app.dependency_overrides[_cam_routes._get_runtime] = lambda: _edge
+app.dependency_overrides[_cam_routes._get_upload_limit] = lambda: _settings.uploads.max_bytes
 app.dependency_overrides[_settings_routes._get_store] = lambda: _config_store
 app.dependency_overrides[_settings_routes._get_runtime] = lambda: _edge
 app.dependency_overrides[_stream_routes._get_runtime] = lambda: _edge
@@ -241,6 +257,8 @@ class EventIngestRequest(BaseModel):
     vlm_summary: str | None = None
     vlm_reasoning: str | None = None
     vlm_model: str | None = None
+    # live_rtsp | usb | browser | uploaded_recorded | uploaded_generated | synthetic
+    source_kind: str | None = None
     metadata: dict = Field(default_factory=dict)
 
     @model_validator(mode="after")
@@ -266,6 +284,7 @@ def ingest_event(req: EventIngestRequest) -> dict:
         vlm_summary=req.vlm_summary,
         vlm_reasoning=req.vlm_reasoning,
         vlm_model=req.vlm_model,
+        source_kind=req.source_kind,
         metadata=req.metadata,
     )
     payload = _store.add_event(event, pack_id=req.metadata.get("pack_id"))

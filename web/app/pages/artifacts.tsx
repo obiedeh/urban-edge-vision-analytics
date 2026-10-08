@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { api, type ArtifactEntry } from "@/lib/api";
+import { api, type ArtifactEntry, type SourceKind } from "@/lib/api";
 import { CredibilityBanner } from "@/components/credibility-banner";
+import { SourceKindBadge, evidenceNote } from "@/components/source-kind-badge";
 import { FileText, FolderOpen, ChevronRight, X, Copy, Download, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -28,6 +29,16 @@ function kindIcon(kind: string) {
 function extOf(path: string): string {
   const parts = path.split(".");
   return parts.length > 1 ? parts[parts.length - 1].toLowerCase() : "";
+}
+
+/** source_kind recorded in a run artifact (top level or under camera). */
+function artifactSourceKind(content: unknown): SourceKind | null {
+  if (!content || typeof content !== "object") return null;
+  const obj = content as Record<string, unknown>;
+  const direct = obj.source_kind;
+  if (typeof direct === "string") return direct as SourceKind;
+  const cam = obj.camera as Record<string, unknown> | undefined;
+  return cam && typeof cam.source_kind === "string" ? (cam.source_kind as SourceKind) : null;
 }
 
 // ── JSON / text viewer with copy + download ───────────────────────────────────
@@ -101,6 +112,7 @@ function ArtifactViewer({
   const rendered = content !== null
     ? (isJson ? JSON.stringify(content, null, 2) : String(content))
     : "";
+  const sourceKind = isJson ? artifactSourceKind(content) : null;
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
@@ -122,6 +134,7 @@ function ArtifactViewer({
           <span>{fmtSize(entry.size_bytes)}</span>
           <span>{fmtDate(entry.last_modified)}</span>
           <span className="uppercase tracking-wide">{entry.kind}</span>
+          {sourceKind && <SourceKindBadge kind={sourceKind} />}
           {/* Copy + Download — only when content loaded */}
           {!loading && !error && rendered && (
             <div className="ml-auto flex items-center gap-1.5">
@@ -130,6 +143,12 @@ function ArtifactViewer({
             </div>
           )}
         </div>
+
+        {sourceKind && evidenceNote(sourceKind) && (
+          <div className="px-4 py-2 border-b border-orange-500/30 bg-orange-500/10 text-[11px] text-orange-200 shrink-0">
+            {evidenceNote(sourceKind)} This run's numbers do not describe a live camera.
+          </div>
+        )}
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-4">

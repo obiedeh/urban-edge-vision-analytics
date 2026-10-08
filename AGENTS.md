@@ -17,10 +17,12 @@ Operator-reviewed incident management, not automated enforcement.
 ## Package Layout
 
 ```
-api/          FastAPI application, routes, managed vLLM launcher
-vision/       Camera profiles, probe, PyAV camera sessions, model runtime,
-              EdgeRuntime (per-camera inference loops), adapters, redaction
-store/        SQLite config store (cameras, settings, bindings, zones),
+api/          FastAPI application, routes, managed vLLM launcher,
+              optional TLS front door (tls_proxy, local_cert)
+vision/       Camera profiles and connectors (rtsp_url, usb_devices, uploads),
+              probe, PyAV camera sessions, model runtime, EdgeRuntime
+              (per-camera inference loops), adapters, redaction, evidence labels
+store/        SQLite config store (cameras, uploads, settings, bindings, zones),
               SQLite event store, Fernet secrets
 packs/        Use-case packs (stop sign, speed, moving object), tracker,
               geometry, PackRunner
@@ -37,7 +39,8 @@ tests/        Unit, API and runtime tests
 ## Runtime Configuration
 
 Nothing operational is hardcoded. Cameras (vendor profile, host, port,
-credentials, stream path/quality, enabled, packs, zones), the model backend
+credentials, stream path/quality, enabled, packs, zones; or a pasted RTSP
+link, a USB device and mode, or an uploaded video and its playback), the model backend
 (vLLM / Ollama / NIM / mock, endpoint, model) and inference settings
 (interval, resolution, prompt preset) are edited in the web UI, stored in the
 SQLite config store (`STORE_PATH`), and applied to the running process by
@@ -63,10 +66,16 @@ Bounding boxes are normalised to the unit square after inference
 ## Live Engine Architecture
 
 - **Capture:** one `StreamCameraSession` thread per enabled camera decodes the
-  RTSP/HTTP stream with PyAV at native rate into a latest-frame slot
-  (`vision/camera_engine.py`). Browser webcams arrive through aiortc into a
+  RTSP/RTSPS/HTTP stream with PyAV at native rate into a latest-frame slot
+  (`vision/camera_engine.py`); `UsbCameraSession` does the same for a V4L2
+  device and `FileCameraSession` plays an uploaded video at its own frame
+  rate, looped or once. Browser cameras arrive through aiortc into a
   `PushCameraSession`. Synthetic sessions exist for tests and demos and are
   labelled as such.
+- **Provenance:** every camera has a `source_kind` (`live_rtsp`, `usb`,
+  `browser`, `uploaded_recorded`, `uploaded_generated`, `synthetic`). The
+  runtime stamps it on inference results and events; evidence frames from
+  non-live sources get a visible banner (`vision/evidence_label.py`).
 - **Display:** `GET /stream/{id}/live.mjpeg` streams the slot to the browser;
   the model server is never in this path.
 - **Inference:** one asyncio task per camera samples the slot on
@@ -87,6 +96,9 @@ Bounding boxes are normalised to the unit square after inference
 - No OpenCV or ONNX imports in core event/analytics/telemetry modules
 - `operator_review_recommended=True` must be set on any event with severity `critical`
 - Do not implement autonomous enforcement logic; observability and operator review only
+- Schema changes are additive: new columns get defaults in `_CAMERA_COLUMNS`, new
+  tables use `CREATE TABLE IF NOT EXISTS`; `tests/test_store_upgrade.py` must keep passing
+- Uploads, certificates and keys live outside the repository and are gitignored
 
 ## Testing
 

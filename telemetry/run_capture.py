@@ -39,6 +39,18 @@ _TEMP_RE = re.compile(r"([a-z0-9]+)@([0-9.]+)C")
 _RAM_RE = re.compile(r"RAM (\d+)/(\d+)MB")
 
 
+_EVIDENCE_NOTES = {
+    "uploaded_recorded": "uploaded recording, not a live camera",
+    "uploaded_generated": "generated footage, not a live camera",
+    "synthetic": "synthetic test feed, not a live camera",
+}
+
+
+def _evidence_note(source_kind: Any) -> str | None:
+    """Label for non-live sources; ``None`` for live cameras."""
+    return _EVIDENCE_NOTES.get(str(source_kind)) if source_kind else None
+
+
 def _percentile(values: list[float], p: float) -> float | None:
     if not values:
         return None
@@ -369,10 +381,15 @@ def capture(
         "api": {"version": client.get("/health").json().get("version"), "host": status1["host"]},
         "model": {k: status1["model"][k] for k in model_keys},
         "inference_settings": status1["inference"],
+        # Where the frames came from. Evidence from uploads or the synthetic feed
+        # is labelled so a run on recorded footage is never read as a live run.
+        "source_kind": camera.get("source_kind"),
+        "evidence_note": _evidence_note(camera.get("source_kind")),
         "camera": {
             "camera_id": camera_id,
             "name": camera.get("name"),
             "profile": camera.get("profile"),
+            "source_kind": camera.get("source_kind"),
             "stream_quality": camera.get("stream_quality"),
             "effective_stream_path": camera.get("effective_stream_path"),
             "rtsp_transport": camera.get("rtsp_transport"),
