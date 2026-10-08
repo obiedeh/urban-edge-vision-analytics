@@ -6,12 +6,21 @@ __pycache__/
 configs/camera.local.json
 configs/*.local.json*
 store/*.sqlite*
+# uploaded videos and evidence frames live next to the store
+store/uploads/
+store/evidence/
+*.mp4
+*.mov
+*.mkv
 
 # Device identity (scripts/provision_device.sh writes outside the repo; belt and braces)
 *.pem
 *.pem.key
 *.pem.crt
+*.key
+*.crt
 certs/
+tls/
 dist/
 build/
 .pytest_cache/

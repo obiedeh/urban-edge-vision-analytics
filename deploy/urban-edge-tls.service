@@ -1,0 +1,28 @@
+# Optional HTTPS front door for the Urban Edge console (opt-in).
+#
+# The API keeps serving plain HTTP on port 8080; this unit adds HTTPS on 8443
+# so phones and laptops on the LAN can share their camera (browsers only
+# allow camera access in a secure context). Make a certificate first:
+#
+#   .venv/bin/python -m api.local_cert 192.0.2.10 thor.local     # or mkcert
+#   cp deploy/urban-edge-tls.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now urban-edge-tls
+#
+# Then open https://192.0.2.10:8443/ and trust the certificate once.
+[Unit]
+Description=Urban Edge HTTPS front door (TLS proxy to the HTTP API)
+After=urban-edge.service
+Wants=urban-edge.service
+
+[Service]
+WorkingDirectory=%h/github/urban-edge-vision-analytics
+Environment=URBAN_EDGE_TLS_LISTEN=0.0.0.0:8443
+Environment=URBAN_EDGE_TLS_TARGET=127.0.0.1:8080
+Environment=URBAN_EDGE_TLS_CERT=%h/.config/urban-edge/tls/cert.pem
+Environment=URBAN_EDGE_TLS_KEY=%h/.config/urban-edge/tls/key.pem
+ExecStart=%h/github/urban-edge-vision-analytics/.venv/bin/python -m api.tls_proxy
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
