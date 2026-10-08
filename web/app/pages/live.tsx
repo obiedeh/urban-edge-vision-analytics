@@ -5,6 +5,7 @@ import { useLiveResults } from "@/lib/live-results";
 import { RuntimeStatusBar, useRuntimeStatus } from "@/components/runtime-status-bar";
 import { LiveVideo } from "@/components/live-video";
 import { CameraStateChip, ProfileChip, SeverityChip } from "@/components/status-chip";
+import { SourceKindBadge, evidenceNote } from "@/components/source-kind-badge";
 import { EventPackFields, eventLabel } from "@/components/event-fields";
 import { CredibilityBanner } from "@/components/credibility-banner";
 import { cn, formatMs, formatSeconds, formatTs } from "@/lib/utils";
@@ -276,7 +277,7 @@ export function LivePage() {
                 >
                   <span className={cn("h-1.5 w-1.5 rounded-full", rt?.state === "streaming" ? "bg-emerald-400" : rt?.state === "error" ? "bg-red-400" : "bg-muted-foreground/40")} />
                   {cam.name || cam.id}
-                  <ProfileChip profile={cam.profile} />
+                  <SourceKindBadge kind={cam.source_kind} />
                 </button>
               );
             })}
@@ -307,17 +308,27 @@ export function LivePage() {
                     <CameraIcon className="h-3.5 w-3.5 text-muted-foreground" />
                     <span className="text-xs font-medium text-foreground truncate">{focused.name || focused.id}</span>
                     <ProfileChip profile={focused.profile} />
+                    <SourceKindBadge kind={focused.source_kind} size="sm" />
                     {focused.masked_url && <span className="font-mono text-[10px] text-muted-foreground/60 truncate max-w-[280px]" title={focused.masked_url}>{focused.masked_url}</span>}
+                    {focused.connector === "upload" && focused.upload && <span className="font-mono text-[10px] text-muted-foreground/60 truncate max-w-[280px]">{focused.upload.filename} · {focused.playback === "once" ? "once" : "loop"}</span>}
+                    {focused.connector === "usb" && <span className="font-mono text-[10px] text-muted-foreground/60">{focused.device}</span>}
                   </div>
                   <Link to={`/studio?camera_id=${encodeURIComponent(focused.id)}`} className="text-[10px] text-primary/80 hover:text-primary">Studio</Link>
                 </div>
+                {evidenceNote(focused.source_kind) && (
+                  <div className="px-3 py-1.5 border-b border-orange-500/30 bg-orange-500/10 text-[11px] text-orange-200 flex items-center gap-2">
+                    <SourceKindBadge kind={focused.source_kind} /> {evidenceNote(focused.source_kind)} Events and evidence from this feed carry the same label.
+                  </div>
+                )}
                 <LiveVideo camera={focused} result={focusedResult} runtime={focusedRuntime} countLine={countLine} />
                 {/* status strip */}
                 <div className="flex items-center gap-4 flex-wrap px-3 py-2 border-t border-border text-[11px] text-muted-foreground tabular-nums">
                   <CameraStateChip state={focusedRuntime?.state ?? focused.runtime?.state} />
                   <span>fps <b className="text-foreground font-medium">{focusedRuntime ? focusedRuntime.fps.toFixed(1) : "—"}</b></span>
                   <span>dropped <b className="text-foreground font-medium">{focusedRuntime?.frames_dropped ?? "—"}</b></span>
-                  <span>reconnects <b className="text-foreground font-medium">{focusedRuntime?.reconnects ?? "—"}</b></span>
+                  {focused.connector === "upload"
+                    ? <span>loops <b className="text-foreground font-medium">{focusedRuntime?.loops ?? "—"}</b></span>
+                    : <span>reconnects <b className="text-foreground font-medium">{focusedRuntime?.reconnects ?? "—"}</b></span>}
                   <span>uptime <b className="text-foreground font-medium">{formatSeconds(focusedRuntime?.uptime_s)}</b></span>
                   {focusedRuntime?.packs && focusedRuntime.packs.active_packs.length > 0 && (
                     <span>packs <b className="text-foreground font-medium">{focusedRuntime.packs.active_packs.join(", ")}</b> · tracks {focusedRuntime.packs.tracks} · events {focusedRuntime.packs.events_emitted}</span>
@@ -399,13 +410,14 @@ function Thumb({
       )}
       {(isWebcam || err) && (
         <div className="absolute inset-0 flex items-center justify-center text-muted-foreground/60 text-[10px]">
-          {isWebcam ? "browser webcam — open to share" : "no signal"}
+          {isWebcam ? "browser camera — open to share" : "no signal"}
         </div>
       )}
       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-background/95 to-transparent px-2 py-1.5 flex items-end justify-between gap-1">
         <span className="text-[11px] font-medium text-foreground truncate">{camera.name || camera.id}</span>
         <div className="flex items-center gap-1 shrink-0">
           {detections != null && <span className="text-[9px] text-muted-foreground font-mono">{detections} det</span>}
+          <SourceKindBadge kind={camera.source_kind} />
           <CameraStateChip state={state} />
         </div>
       </div>

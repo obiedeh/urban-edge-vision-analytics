@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  api, apiErrorMessage,
-  type Camera, type CameraIn, type CameraProfile, type CameraTestResult,
+  api, apiErrorMessage, cameraToIn,
+  type Camera, type CameraIn, type CameraProfile, type CameraTestResult, type Playback,
+  type UploadRecord, type UploadSourceKind, type UsbDevice,
 } from "@/lib/api";
 import { StatusMsg } from "@/components/status-chip";
+import { SourceKindBadge } from "@/components/source-kind-badge";
 import { cn, inputCls, selectCls, btnPrimary, btnGhost } from "@/lib/utils";
-import { Save, Eye, EyeOff, Wifi, WifiOff, Loader2, X, RotateCcw } from "lucide-react";
+import { Save, Eye, EyeOff, Wifi, WifiOff, Loader2, X, RotateCcw, RefreshCw, Upload, Film, Usb, Link2, Smartphone } from "lucide-react";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -44,6 +46,17 @@ export function profilePath(profile: CameraProfile | undefined, quality: "main" 
   return tpl.split("{channel}").join(String(channel)).split("{channel2}").join(String(channel).padStart(2, "0"));
 }
 
+export function fmtBytes(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+export function describeUpload(u: UploadRecord): string {
+  const parts = [u.width && u.height ? `${u.width}×${u.height}` : null, u.fps ? `${u.fps.toFixed(u.fps % 1 ? 2 : 0)} fps` : null, u.duration_s ? `${u.duration_s.toFixed(1)} s` : null, u.codec, fmtBytes(u.size_bytes)];
+  return parts.filter(Boolean).join(" · ");
+}
+
 const STAGE_TEXT: Record<string, string> = {
   reachability: "Host not reachable",
   auth: "Authentication failed",
@@ -51,6 +64,7 @@ const STAGE_TEXT: Record<string, string> = {
   codec: "Could not decode video",
   timeout: "Timed out",
   decode: "Decode error",
+  device: "Device problem",
   url: "Invalid camera URL",
 };
 
@@ -95,6 +109,149 @@ export function TestResultCard({ result, onClose }: { result: CameraTestResult; 
   );
 }
 
+// ── USB device picker ────────────────────────────────────────────────────────
+
+function UsbSection({ form, set, busy }: { form: CameraIn; set: <K extends keyof CameraIn>(k: K, v: CameraIn[K]) => void; busy: boolean }) {
+  const [devices, setDevices] = useState<UsbDevice[] | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function load() {
+    setLoading(true); setErr(null);
+    try {
+      const res = await api.cameras.usbDevices();
+      setDevices(res.devices); setNote(res.note);
+      if (!form.device && res.devices.length > 0) set("device", res.devices[0].path);
+    } catch (e) { setErr(apiErrorMessage(e, "Could not list USB devices")); }
+    finally { setLoading(false); }
+  }
+  useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const device = devices?.find((d) => d.path === form.device);
+  // One entry per (format, size): cameras offer MJPG at high rates and raw YUYV only at low ones.
+  const modes = useMemo(() => (device?.modes ?? []).map((m) => ({ ...m, key: `${m.pixel_format}:${m.width}x${m.height}` })), [device]);
+  const modeKey = form.capture_width && form.capture_height ? `${form.capture_format || ""}:${form.capture_width}x${form.capture_height}` : "";
+  const mode = modes.find((m) => m.key === modeKey) ?? modes.find((m) => m.key.endsWith(`:${form.capture_width}x${form.capture_height}`));
+  const fpsChoices = mode?.fps ?? Array.from(new Set(modes.flatMap((m) => m.fps))).sort((a, b) => b - a);
+
+  return (
+    <>
+      <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 flex items-center gap-2"><Usb className="h-3 w-3" /> USB camera</p>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <Field label="Device" className="sm:col-span-3" hint={device?.error ?? (note ?? "Devices under /dev/video* that can capture video. Metadata nodes are hidden.")}>
+          <div className="flex items-center gap-2">
+            <select value={form.device ?? ""} onChange={(e) => { set("device", e.target.value); set("capture_width", null); set("capture_height", null); set("capture_fps", null); set("capture_format", ""); }} disabled={busy || loading} className={selectCls}>
+              {(devices ?? []).length === 0 && <option value="">{loading ? "Scanning…" : "No USB camera found"}</option>}
+              {(devices ?? []).map((d) => <option key={d.path} value={d.path}>{d.name} — {d.path}{d.error ? " (unavailable)" : ""}</option>)}
+            </select>
+            <button type="button" onClick={load} disabled={busy || loading} className={btnGhost} title="Rescan devices">
+              {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />} Rescan
+            </button>
+          </div>
+        </Field>
+        <Field label="Resolution and format" hint="Driver default when blank. MJPG usually offers the higher frame rates.">
+          <select value={mode?.key ?? ""} onChange={(e) => { const m = modes.find((x) => x.key === e.target.value); set("capture_width", m?.width ?? null); set("capture_height", m?.height ?? null); set("capture_format", m?.pixel_format ?? ""); if (m && form.capture_fps && !m.fps.includes(form.capture_fps)) set("capture_fps", m.fps[0] ?? null); }} disabled={busy || !device} className={selectCls}>
+            <option value="">Driver default</option>
+            {modes.map((m) => <option key={m.key} value={m.key}>{m.width}×{m.height} · {m.pixel_format}{m.fps.length ? ` · up to ${m.fps[0]} fps` : ""}</option>)}
+          </select>
+        </Field>
+        <Field label="Frame rate" hint="Rates the device offers for the chosen mode">
+          <select value={form.capture_fps ?? ""} onChange={(e) => set("capture_fps", e.target.value ? parseFloat(e.target.value) : null)} disabled={busy || !device} className={selectCls}>
+            <option value="">Driver default</option>
+            {fpsChoices.map((f) => <option key={f} value={f}>{f} fps</option>)}
+          </select>
+        </Field>
+        <Field label="Chosen mode" hint="Passed to the decoder as video_size, framerate and input_format">
+          <div className="text-[11px] text-muted-foreground font-mono pt-1.5">{form.capture_width ? `${form.capture_width}x${form.capture_height}` : "default"}{form.capture_format ? ` ${form.capture_format}` : ""}{form.capture_fps ? ` @ ${form.capture_fps}` : ""}</div>
+        </Field>
+      </div>
+      {err && <StatusMsg kind="err" text={err} />}
+      {devices && devices.length === 0 && <StatusMsg kind="warn" text={note ?? "No USB camera found."} />}
+    </>
+  );
+}
+
+// ── Upload picker ────────────────────────────────────────────────────────────
+
+function UploadSection({ form, set, busy, onUploaded }: { form: CameraIn; set: <K extends keyof CameraIn>(k: K, v: CameraIn[K]) => void; busy: boolean; onUploaded?: (u: UploadRecord) => void }) {
+  const [uploads, setUploads] = useState<UploadRecord[]>([]);
+  const [kind, setKind] = useState<UploadSourceKind>("recorded");
+  const [file, setFile] = useState<File | null>(null);
+  const [progress, setProgress] = useState<number | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement | null>(null);
+
+  async function load() {
+    try { setUploads(await api.cameras.uploads.list()); }
+    catch (e) { setErr(apiErrorMessage(e, "Could not list uploads")); }
+  }
+  useEffect(() => { void load(); }, []);
+
+  async function upload() {
+    if (!file) return;
+    setErr(null); setProgress(0);
+    try {
+      const rec = await api.cameras.uploads.upload(file, kind, setProgress);
+      await load();
+      set("upload_id", rec.id);
+      setFile(null); if (fileRef.current) fileRef.current.value = "";
+      onUploaded?.(rec);
+    } catch (e) { setErr(apiErrorMessage(e, "Upload failed")); }
+    finally { setProgress(null); }
+  }
+
+  const selected = uploads.find((u) => u.id === form.upload_id);
+  const uploading = progress !== null;
+
+  return (
+    <>
+      <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 flex items-center gap-2"><Film className="h-3 w-3" /> Uploaded video</p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <Field label="Video to play" className="sm:col-span-2" hint={selected ? <span className="flex items-center gap-2 flex-wrap"><SourceKindBadge kind={selected.source_kind === "generated" ? "uploaded_generated" : "uploaded_recorded"} />{describeUpload(selected)}</span> : "Pick an uploaded file, or upload a new one below."}>
+          <select value={form.upload_id ?? ""} onChange={(e) => set("upload_id", e.target.value)} disabled={busy || uploading} className={selectCls}>
+            <option value="">{uploads.length ? "Choose an uploaded video…" : "No uploads yet"}</option>
+            {uploads.map((u) => <option key={u.id} value={u.id}>{u.filename} · {u.source_kind} · {fmtBytes(u.size_bytes)}</option>)}
+          </select>
+        </Field>
+        <Field label="Playback">
+          <select value={form.playback ?? "loop"} onChange={(e) => set("playback", e.target.value as Playback)} disabled={busy} className={selectCls}>
+            <option value="loop">Loop (restart at the end)</option>
+            <option value="once">Play once, then stop</option>
+          </select>
+        </Field>
+        <Field label="Frame rate" hint="Uploads always play at the file's own frame rate.">
+          <div className="text-[11px] text-muted-foreground pt-1.5">{selected?.fps ? `${selected.fps} fps (native)` : "native"}</div>
+        </Field>
+      </div>
+
+      <div className="rounded border border-border bg-secondary/20 px-3 py-3 space-y-3">
+        <p className="text-xs font-medium text-foreground flex items-center gap-2"><Upload className="h-3.5 w-3.5" /> Upload a new file</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Field label="File" hint="MP4, MOV or MKV. The size limit is set on the server (default 2 GB).">
+            <input ref={fileRef} type="file" accept=".mp4,.mov,.mkv,video/mp4,video/quicktime,video/x-matroska" disabled={busy || uploading} onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="block w-full text-xs text-muted-foreground file:mr-3 file:rounded file:border file:border-border file:bg-background file:px-2 file:py-1 file:text-xs file:text-foreground" />
+          </Field>
+          <Field label="What is this footage?" hint="Shown as a badge on Live, every event and every run artifact made from it.">
+            <div className="flex items-center gap-4 pt-1.5 text-xs">
+              <label className="inline-flex items-center gap-1.5"><input type="radio" name="upload-kind" checked={kind === "recorded"} onChange={() => setKind("recorded")} disabled={busy || uploading} /> Recorded (real camera)</label>
+              <label className="inline-flex items-center gap-1.5"><input type="radio" name="upload-kind" checked={kind === "generated"} onChange={() => setKind("generated")} disabled={busy || uploading} /> Generated (simulation, AI)</label>
+            </div>
+          </Field>
+        </div>
+        <div className="flex items-center gap-3">
+          <button type="button" onClick={upload} disabled={busy || uploading || !file} className={btnPrimary}>
+            {uploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+            {uploading ? `Uploading ${Math.round((progress ?? 0) * 100)}%` : "Upload"}
+          </button>
+          {file && !uploading && <span className="text-[11px] text-muted-foreground">{file.name} · {fmtBytes(file.size)}</span>}
+          {uploading && <div className="flex-1 h-1.5 rounded bg-secondary overflow-hidden"><div className="h-full bg-primary transition-all" style={{ width: `${Math.round((progress ?? 0) * 100)}%` }} /></div>}
+        </div>
+      </div>
+      {err && <StatusMsg kind="err" text={err} />}
+    </>
+  );
+}
+
 // ── form ─────────────────────────────────────────────────────────────────────
 
 interface Props {
@@ -103,6 +260,8 @@ interface Props {
   camera?: Camera | null;
   onSaved: (cam: Camera) => void;
   onCancel: () => void;
+  /** called after a successful upload so the parent can refresh its uploads list */
+  onUploaded?: (u: UploadRecord) => void;
 }
 
 function blankForm(profile: CameraProfile | undefined): CameraIn {
@@ -119,31 +278,22 @@ function blankForm(profile: CameraProfile | undefined): CameraIn {
     rtsp_transport: "tcp",
     enabled: true,
     show_on_live: true,
+    source_url: "",
+    device: "",
+    capture_width: null,
+    capture_height: null,
+    capture_fps: null,
+    capture_format: "",
+    upload_id: "",
+    playback: "loop",
   };
 }
 
-export function CameraForm({ profiles, camera, onSaved, onCancel }: Props) {
+export function CameraForm({ profiles, camera, onSaved, onCancel, onUploaded }: Props) {
   const byType = useMemo(() => new Map(profiles.map((p) => [p.model_type, p])), [profiles]);
   const initialProfile = camera ? byType.get(camera.profile) : profiles.find((p) => p.model_type === "generic_rtsp") ?? profiles[0];
 
-  const [form, setForm] = useState<CameraIn>(() =>
-    camera
-      ? {
-          name: camera.name,
-          profile: camera.profile,
-          host: camera.host,
-          port: camera.port,
-          username: camera.username,
-          password: "",
-          stream_path: camera.stream_path,
-          stream_quality: camera.stream_quality,
-          channel: camera.channel,
-          rtsp_transport: camera.rtsp_transport,
-          enabled: camera.enabled,
-          show_on_live: camera.show_on_live,
-        }
-      : blankForm(initialProfile)
-  );
+  const [form, setForm] = useState<CameraIn>(() => (camera ? cameraToIn(camera) : blankForm(initialProfile)));
   /** true while stream_path tracks the profile default (auto-fill mode) */
   const [pathAuto, setPathAuto] = useState(() => !camera || camera.stream_path === "");
   const [showPassword, setShowPassword] = useState(false);
@@ -153,16 +303,14 @@ export function CameraForm({ profiles, camera, onSaved, onCancel }: Props) {
   const [test, setTest] = useState<CameraTestResult | null>(null);
 
   const profile = byType.get(form.profile);
-  const needsHost = profile?.requires_host ?? true;
+  const connector = profile?.connector ?? "network";
+  const needsHost = connector === "network" && (profile?.requires_host ?? true);
+  const canTest = connector === "network" || connector === "rtsp_url" || connector === "usb" || connector === "upload";
 
   // Reset form when switching between cameras in the parent.
   useEffect(() => {
     if (!camera) return;
-    setForm({
-      name: camera.name, profile: camera.profile, host: camera.host, port: camera.port, username: camera.username,
-      password: "", stream_path: camera.stream_path, stream_quality: camera.stream_quality, channel: camera.channel,
-      rtsp_transport: camera.rtsp_transport, enabled: camera.enabled, show_on_live: camera.show_on_live,
-    });
+    setForm(cameraToIn(camera));
     setPathAuto(camera.stream_path === "");
     setTest(null); setError(null);
   }, [camera]);
@@ -193,6 +341,7 @@ export function CameraForm({ profiles, camera, onSaved, onCancel }: Props) {
       ...form,
       name: form.name.trim(),
       host: form.host.trim(),
+      source_url: (form.source_url ?? "").trim(),
       stream_path: pathAuto ? "" : form.stream_path.trim(),
       port: needsHost ? (form.port ?? null) : null,
     };
@@ -202,6 +351,9 @@ export function CameraForm({ profiles, camera, onSaved, onCancel }: Props) {
     if (!form.name.trim()) return "Name is required.";
     if (needsHost && !form.host.trim()) return `Host is required for ${profile?.label ?? "this"} cameras.`;
     if (needsHost && /^\d+(-\d+){3}$/.test(form.host.trim())) return "Host uses dashes — use dots (192.0.2.249).";
+    if (connector === "rtsp_url" && !/^rtsps?:\/\//i.test((form.source_url ?? "").trim())) return "Paste a link that starts with rtsp:// or rtsps://.";
+    if (connector === "usb" && !form.device) return "Choose a USB camera device.";
+    if (connector === "upload" && !form.upload_id) return "Choose or upload a video to play.";
     return null;
   }
 
@@ -234,6 +386,7 @@ export function CameraForm({ profiles, camera, onSaved, onCancel }: Props) {
   }
 
   const busy = saving || testing;
+  const linkHasCreds = /^rtsps?:\/\/[^/@\s]+@/i.test((form.source_url ?? "").trim());
 
   return (
     <div className="space-y-4">
@@ -248,10 +401,52 @@ export function CameraForm({ profiles, camera, onSaved, onCancel }: Props) {
         </Field>
         <Field label="Profile" hint={profile?.notes || undefined}>
           <select value={form.profile} onChange={(e) => changeProfile(e.target.value)} disabled={busy} className={selectCls}>
-            {profiles.map((p) => <option key={p.model_type} value={p.model_type}>{p.label}</option>)}
+            <optgroup label="Network cameras (host + path)">
+              {profiles.filter((p) => p.connector === "network").map((p) => <option key={p.model_type} value={p.model_type}>{p.label}</option>)}
+            </optgroup>
+            <optgroup label="Other video feeds">
+              {profiles.filter((p) => p.connector !== "network").map((p) => <option key={p.model_type} value={p.model_type}>{p.label}</option>)}
+            </optgroup>
           </select>
         </Field>
       </div>
+
+      {connector === "rtsp_url" && (
+        <>
+          <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 flex items-center gap-2"><Link2 className="h-3 w-3" /> RTSP link</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field
+              label="Stream link"
+              className="sm:col-span-2"
+              hint={linkHasCreds
+                ? "This link contains a username and password. They will be taken out of the link, stored encrypted like any camera password, and never shown or logged."
+                : "Full rtsp:// or rtsps:// address, for example rtsp://192.0.2.50:554/stream1. Credentials can stay in the link or go in the fields below."}
+            >
+              <input type="text" autoComplete="off" spellCheck={false} value={form.source_url ?? ""} onChange={(e) => set("source_url", e.target.value)} disabled={busy} placeholder="rtsp://192.0.2.50:554/stream1" className={cn(inputCls, "font-mono")} />
+            </Field>
+            <Field label="Username" hint="Optional. Overrides a username inside the link.">
+              <input type="text" autoComplete="username" value={form.username} onChange={(e) => set("username", e.target.value)} disabled={busy} placeholder="viewer" className={inputCls} />
+            </Field>
+            <Field label="Password" hint={camera?.has_password ? "Leave blank to keep the stored password" : "Optional. Overrides a password inside the link."}>
+              <div className="relative">
+                <input type={showPassword ? "text" : "password"} autoComplete="new-password" value={form.password} onChange={(e) => set("password", e.target.value)} disabled={busy} placeholder={camera?.has_password ? "(unchanged)" : "Enter password"} className={cn(inputCls, "pr-8")} />
+                <button type="button" onClick={() => setShowPassword((v) => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" aria-label="toggle password visibility">
+                  {showPassword ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                </button>
+              </div>
+            </Field>
+            <Field label="RTSP transport">
+              <select value={form.rtsp_transport} onChange={(e) => set("rtsp_transport", e.target.value as "tcp" | "udp")} disabled={busy} className={selectCls}>
+                <option value="tcp">TCP (recommended)</option>
+                <option value="udp">UDP (lower latency)</option>
+              </select>
+            </Field>
+          </div>
+        </>
+      )}
+
+      {connector === "usb" && <UsbSection form={form} set={set} busy={busy} />}
+      {connector === "upload" && <UploadSection form={form} set={set} busy={busy} onUploaded={onUploaded} />}
 
       {needsHost && (
         <>
@@ -325,7 +520,15 @@ export function CameraForm({ profiles, camera, onSaved, onCancel }: Props) {
         </>
       )}
 
-      {!needsHost && profile && (
+      {connector === "browser" && profile && (
+        <div className="text-[11px] text-muted-foreground/80 rounded border border-border bg-secondary/20 px-3 py-2 space-y-1">
+          <p className="flex items-center gap-2 text-foreground"><Smartphone className="h-3.5 w-3.5" /> {profile.label}: no host or credentials.</p>
+          <p>Open the Live page in the browser whose camera you want to share and press <b>Share camera</b>. On a laptop you pick the camera from a list; on a phone you choose front or back.</p>
+          <p>Browsers only allow camera access on <code>localhost</code> or over HTTPS. For a phone or another computer on the LAN, enable the optional HTTPS front door (README: <i>Browser camera from another device</i>).</p>
+        </div>
+      )}
+
+      {connector === "synthetic" && profile && (
         <p className="text-[11px] text-muted-foreground/80 rounded border border-border bg-secondary/20 px-3 py-2">
           {profile.label}: no host or credentials. {profile.notes}
         </p>
@@ -340,10 +543,10 @@ export function CameraForm({ profiles, camera, onSaved, onCancel }: Props) {
       {error && <StatusMsg kind={test?.ok || !test ? "err" : "warn"} text={error} />}
 
       <div className="flex items-center gap-2 flex-wrap">
-        {needsHost && (
+        {canTest && (
           <button type="button" onClick={runTest} disabled={busy} className={btnGhost}>
             {testing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wifi className="h-3 w-3" />}
-            {testing ? "Testing…" : "Test connection"}
+            {testing ? "Testing…" : connector === "upload" ? "Check file" : "Test connection"}
           </button>
         )}
         <button type="button" onClick={save} disabled={busy} className={btnPrimary}>

@@ -139,11 +139,11 @@ body{margin:0}
     <span class="status"><i></i>Functional · field validation in progress</span>
   </div>
   <h1>Urban <span class="ee-g">Edge</span> <span class="ee-b">Vision</span></h1>
-  <p class="lede">Network cameras are set up in a web console. A vision-language model running on the device looks at each frame, use-case packs turn what it sees into traffic events, and an operator reviews them. Processing stays on the device, and nothing is enforced automatically.</p>
+  <p class="lede">Cameras are set up in a web console: network cameras, a pasted RTSP link, a USB camera, an uploaded video or a browser's camera. A vision-language model running on the device looks at each frame, use-case packs turn what it sees into traffic events, and an operator reviews them. Processing stays on the device, nothing is enforced automatically, and footage that is not a live camera is labelled as such everywhere.</p>
   <div class="spec">
     <div><span class="label">Field device</span><b>Jetson AGX Thor</b><span>Cosmos-Reason2-2B on vLLM</span></div>
     <div><span class="label">Workstation</span><b>RTX 5090 class GPU</b><span>Gemma 4 on Ollama or vLLM</span></div>
-    <div><span class="label">Cameras</span><b>10 vendor profiles</b><span>RTSP, HTTP MJPEG, webcam</span></div>
+    <div><span class="label">Cameras</span><b>5 feed connectors</b><span>9 vendor profiles, RTSP link, USB, upload, browser</span></div>
     <div><span class="label">Packs</span><b>4 use cases</b><span>per camera, combinable</span></div>
   </div>
 </header>
@@ -237,11 +237,11 @@ body{margin:0}
     <h2 id="flow-h">From stream to reviewed event</h2>
   </div>
   <div class="flow">
-    <div><span class="n">01 · capture</span><b>Decode at native rate</b><p>One capture thread per camera writes the newest frame to a single slot.</p></div>
+    <div><span class="n">01 · capture</span><b>Decode at native rate</b><p>One capture thread per camera writes the newest frame to a single slot: network stream, USB device, uploaded file or browser camera.</p></div>
     <div><span class="n">02 · watch</span><b>Live video</b><p>The browser reads that slot as MJPEG at the camera's own frame rate.</p></div>
     <div><span class="n">03 · look</span><b>Model on its own cadence</b><p>Inference samples the slot every interval. vLLM, Ollama or NVIDIA NIM, switchable live.</p></div>
     <div><span class="n">04 · decide</span><b>Tracker and packs</b><p>Detections get stable track ids, then each pack bound to the camera applies its rule.</p></div>
-    <div><span class="n">05 · review</span><b>Operator queue</b><p>Events persist in SQLite. Flagged ones wait in Review with the frame the model saw.</p></div>
+    <div><span class="n">05 · review</span><b>Operator queue</b><p>Events persist in SQLite with their source kind. Flagged ones wait in Review with the frame the model saw, stamped when it is not from a live camera.</p></div>
   </div>
   <div class="callout">
     <strong>Video never waits on the model</strong>
@@ -309,7 +309,8 @@ report    direction, speed band, descriptor</div>
   </div>
   <div class="trust">
     <div><b>Credentials stay put</b><p>Camera passwords are encrypted at rest with a key file outside the repository. The API never returns one, and a saved password is only reused for the host and port it was saved for.</p></div>
-    <div><b>Nothing leaks into logs</b><p>Stream URLs are masked in logs, errors, status payloads and run artifacts.</p></div>
+    <div><b>Nothing leaks into logs</b><p>Stream URLs are masked in logs, errors, status payloads and run artifacts. A pasted RTSP link has its credentials removed before it is stored or shown.</p></div>
+    <div><b>Live and recorded never mix</b><p>Every event and run artifact records where its frames came from: live network, USB, browser, uploaded recording, generated footage or the synthetic feed. Non-live evidence carries a visible banner.</p></div>
     <div><b>Right model for the box</b><p>On first start the console picks a default for the hardware: Cosmos-Reason2-2B on Thor, Gemma 4 on a workstation. The operator can switch at any time.</p></div>
     <div><b>Shared model server guarded</b><p>A model container another app depends on cannot be stopped by accident. Stopping it needs an explicit, logged confirmation.</p></div>
     <div><b>Runs as a service</b><p>A systemd unit starts the API and console at boot and keeps a persistent log.</p></div>
@@ -327,7 +328,8 @@ report    direction, speed band, descriptor</div>
       <span class="label">Working now</span>
       <ul>
         <li><span class="mk ok"></span><span><b>Runs end to end</b> from camera setup to the Review queue, on the Thor and on a workstation.</span></li>
-        <li><span class="mk ok"></span><span><b>271 automated tests pass</b> covering camera setup, connection probing, credential handling, model switching and memory preflight, all four packs and the review flow.</span></li>
+        <li><span class="mk ok"></span><span><b>Five feed connectors</b>: vendor RTSP and HTTP profiles, a pasted RTSP link, USB cameras, uploaded video at native rate, and a browser camera from a laptop or phone (HTTPS front door, opt-in).</span></li>
+        <li><span class="mk ok"></span><span><b>310 automated tests pass</b> covering camera setup, connection probing, credential handling and link stripping, USB listing, uploads and playback, source labelling, store upgrades, model switching and memory preflight, all four packs and the review flow.</span></li>
         <li><span class="mk ok"></span><span><b>CI on every push</b>: lint, type checks, tests and the console build.</span></li>
       </ul>
     </div>
