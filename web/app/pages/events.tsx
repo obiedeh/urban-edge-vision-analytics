@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { api, apiErrorMessage, type Camera, type ReviewStatus, type TrafficEvent } from "@/lib/api";
 import { EventPackFields, EVENT_LABELS, PACK_LABELS, eventLabel } from "@/components/event-fields";
 import { ReviewChip, SeverityChip, StatusMsg } from "@/components/status-chip";
+import { SourceKindBadge, evidenceNote } from "@/components/source-kind-badge";
 import { cn, formatDateTime, formatTs, selectCls, btnGhost } from "@/lib/utils";
 import { X, RefreshCw } from "lucide-react";
 
@@ -21,6 +22,7 @@ export function EventDrawer({ event, onClose, cameraName }: { event: TrafficEven
             <span className="text-sm font-semibold text-foreground truncate">{eventLabel(event)}</span>
             <SeverityChip severity={event.severity} />
             <ReviewChip status={event.review_status} />
+            <SourceKindBadge kind={event.source_kind} />
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
         </div>
@@ -32,7 +34,24 @@ export function EventDrawer({ event, onClose, cameraName }: { event: TrafficEven
             <div><div className="text-muted-foreground">Confidence</div><div className="text-foreground">{(event.confidence * 100).toFixed(0)}%</div></div>
             <div><div className="text-muted-foreground">Event id</div><div className="font-mono text-foreground/80 break-all">{event.event_id}</div></div>
             {event.vlm_model && <div><div className="text-muted-foreground">Model</div><div className="font-mono text-foreground/80">{event.vlm_model}</div></div>}
+            <div><div className="text-muted-foreground">Source</div><div className="text-foreground flex items-center gap-2"><SourceKindBadge kind={event.source_kind} />{!event.source_kind && <span className="text-muted-foreground/70">not recorded (older event)</span>}</div></div>
           </div>
+          {event.has_frame && (
+            <div className="space-y-1">
+              <div className="text-muted-foreground">Evidence frame</div>
+              <div className="relative rounded border border-border overflow-hidden bg-black">
+                <img src={api.events.frameUrl(event.event_id)} alt="evidence frame" className="w-full max-h-72 object-contain" />
+                {evidenceNote(event.source_kind) && (
+                  <div className="absolute inset-x-0 bottom-0 bg-orange-950/85 text-orange-200 text-[10px] px-2 py-1 flex items-center gap-2">
+                    <SourceKindBadge kind={event.source_kind} /> {evidenceNote(event.source_kind)}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+          {!event.has_frame && evidenceNote(event.source_kind) && (
+            <div className="rounded border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-orange-200 flex items-center gap-2"><SourceKindBadge kind={event.source_kind} /> {evidenceNote(event.source_kind)}</div>
+          )}
           <div>
             <div className="text-muted-foreground mb-1">Pack fields</div>
             <EventPackFields evt={event} />
@@ -84,6 +103,7 @@ export function EventRow({ evt, onClick, cameraName, selected }: { evt: TrafficE
           <span className="text-xs font-medium text-foreground">{eventLabel(evt)}</span>
           <SeverityChip severity={evt.severity} />
           <ReviewChip status={evt.review_status} />
+          <SourceKindBadge kind={evt.source_kind} />
           {evt.pack_id && <span className="text-[10px] text-muted-foreground font-mono">{evt.pack_id}</span>}
           <span className="text-[10px] text-muted-foreground font-mono ml-auto">{cameraName ?? evt.camera_id}</span>
         </div>
