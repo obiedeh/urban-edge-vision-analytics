@@ -45,9 +45,17 @@ class Direction(BaseModel):
 
 
 class TrafficEvent(BaseModel):
+    """One observation emitted by a pack (or ingested externally) for review.
+
+    ``source_kind`` says where the frames came from: ``live_rtsp``, ``usb``,
+    ``browser``, ``uploaded_recorded``, ``uploaded_generated`` or ``synthetic``.
+    It is ``None`` only on events written before the field existed.
+    """
+
     schema_version: Literal[1] = 1
     event_id: str
     camera_id: str
+    source_kind: str | None = None
     event_type: EventType
     severity: Severity
     timestamp: datetime
