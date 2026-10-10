@@ -5,8 +5,7 @@
 #   systemctl --user daemon-reload && systemctl --user enable --now urban-edge
 #   loginctl enable-linger $USER      # keep it running without a login session
 #
-# Config, encrypted credentials, uploaded videos and the key live under $HOME
-# (never in the repo). For HTTPS on the LAN (phone cameras) see urban-edge-tls.service.
+# Config, encrypted credentials and the key live under $HOME (never in the repo).
 [Unit]
 Description=Urban Edge Vision Analytics API and operator UI
 After=network-online.target docker.service

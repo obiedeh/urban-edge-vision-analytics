@@ -1,48 +1,24 @@
-"""Camera CRUD, connection test, USB devices, video uploads, bindings, zones, calibration.
+"""Camera CRUD, connection test, pack bindings, zones and calibration.
 
 All camera configuration lives in the SQLite config store. Passwords are
 encrypted at rest and are never returned; ``has_password`` tells the UI a
-secret is stored. Pasted RTSP links are stored and echoed without their
-credentials. Uploaded videos arrive as a raw request body (no multipart
-parser needed) and are kept next to the store. Changes are applied to the
-running EdgeRuntime immediately.
+secret is stored. Changes are applied to the running EdgeRuntime immediately.
 """
 from __future__ import annotations
 
-import asyncio
-import hashlib
 import json
-import os
-import tempfile
-from collections.abc import Callable
-from datetime import UTC, datetime
-from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from packs.base import PackId
 from packs.compatibility import IncompatiblePackSelection, validate_pack_set
 from store.config_store import ConfigStore
-from store.models import CameraIn, CameraRecord, UploadRecord
+from store.models import CameraIn, CameraRecord
 from vision.camera_profiles import CameraConfigError, get_profile, list_profiles
 from vision.probe import probe_stream
 from vision.redaction import REDACTOR
-from vision.rtsp_url import with_credentials
-from vision.uploads import (
-    DEFAULT_MAX_BYTES,
-    SNIFF_BYTES,
-    UploadError,
-    check_signature,
-    check_size,
-    content_type_for,
-    probe_video_file,
-    safe_filename,
-    upload_id_for,
-    validate_source_kind,
-)
-from vision.usb_devices import UsbDevice, list_usb_devices, v4l2_options
 
 router = APIRouter(prefix="/cameras", tags=["cameras"])
 
@@ -58,16 +34,6 @@ def _get_store() -> ConfigStore:
 def _get_runtime() -> Any:
     """Overridden in api/main.py with the EdgeRuntime (may be None in tests)."""
     return None
-
-
-def _get_upload_limit() -> int:
-    """Maximum accepted upload size in bytes; api/main.py supplies the configured value."""
-    return DEFAULT_MAX_BYTES
-
-
-def _get_usb_lister() -> Callable[[], list[UsbDevice]]:
-    """Returns the V4L2 enumerator; tests override it with a fake device list."""
-    return list_usb_devices
 
 
 # ── Request / response models ─────────────────────────────────────────────────
@@ -126,146 +92,6 @@ def _with_runtime(record: CameraRecord, runtime: Any) -> CameraOut:
 @router.get("/profiles")
 async def camera_profiles() -> list[dict]:
     return list_profiles()
-
-
-# ── USB devices ───────────────────────────────────────────────────────────────
-
-
-@router.get("/usb-devices")
-async def usb_devices(
-    lister: Callable[[], list[UsbDevice]] = Depends(_get_usb_lister),
-) -> dict:
-    """List ``/dev/video*`` capture devices with their names and supported modes.
-
-    An empty list means no camera is plugged in (or none is visible to this
-    process); ``note`` carries the message to show. A device that exists but
-    cannot be queried is listed with its ``error``.
-    """
-    devices = await asyncio.to_thread(lister)
-    note = None
-    if not devices:
-        note = (
-            "No USB camera found. Plug one in and refresh; it must appear as /dev/video* "
-            "and be readable by the user running the API (video group)."
-        )
-    return {"devices": [d.to_dict() for d in devices], "note": note}
-
-
-# ── Uploaded videos ───────────────────────────────────────────────────────────
-
-
-@router.get("/uploads")
-async def list_uploads(store: ConfigStore = Depends(_get_store)) -> list[UploadRecord]:
-    return await store.list_uploads()
-
-
-@router.post("/uploads", status_code=201)
-async def upload_video(
-    request: Request,
-    filename: str = Query(..., min_length=1, max_length=255),
-    source_kind: str = Query("recorded"),
-    store: ConfigStore = Depends(_get_store),
-    max_bytes: int = Depends(_get_upload_limit),
-) -> UploadRecord:
-    """Receive an MP4/MOV/MKV as the raw request body and register it.
-
-    The file is streamed to a temporary name next to the store while its hash
-    is computed and the size limit enforced, checked for a matching container
-    signature, then opened with PyAV to read its native frame rate, size and
-    duration. ``source_kind`` records whether the footage is a real recording
-    or generated, and is shown on every event the file produces.
-    """
-    try:
-        kind = validate_source_kind(source_kind)
-        safe = safe_filename(filename)
-        content_type = content_type_for(safe)
-        declared = request.headers.get("content-length", "")
-        if declared.isdigit():
-            check_size(int(declared), max_bytes)
-    except UploadError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-
-    store.upload_dir.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(
-        prefix=".upload-", suffix=Path(safe).suffix, dir=store.upload_dir
-    )
-    tmp = Path(tmp_name)
-    digest = hashlib.sha256()
-    size = 0
-    head = b""
-    sniffed = False
-    try:
-        with os.fdopen(fd, "wb") as fh:
-            async for chunk in request.stream():
-                if not chunk:
-                    continue
-                size += len(chunk)
-                check_size(size, max_bytes)
-                if not sniffed:
-                    head += chunk[: SNIFF_BYTES - len(head)]
-                    if len(head) >= SNIFF_BYTES:
-                        check_signature(head, safe)
-                        sniffed = True
-                digest.update(chunk)
-                await asyncio.to_thread(fh.write, chunk)
-        if size == 0:
-            raise UploadError("The upload is empty.", 400)
-        if not sniffed:
-            check_signature(head, safe)
-        info = await asyncio.to_thread(probe_video_file, tmp)
-        sha = digest.hexdigest()
-        upload_id = upload_id_for(safe, sha)
-        stored_name = f"{upload_id}{Path(safe).suffix}"
-        os.replace(tmp, store.upload_dir / stored_name)
-    except UploadError as exc:
-        tmp.unlink(missing_ok=True)
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-    except Exception:
-        tmp.unlink(missing_ok=True)
-        raise
-
-    record = UploadRecord(
-        id=upload_id, filename=safe, stored_name=stored_name, content_type=content_type,
-        size_bytes=size, sha256=sha, source_kind=kind,  # type: ignore[arg-type]
-        created_at=datetime.now(UTC).isoformat(), **info.to_dict(),
-    )
-    saved = await store.add_upload(record)
-    await store.append_audit(
-        "upload_video", "upload", upload_id,
-        {"filename": safe, "size_bytes": size, "sha256": sha, "source_kind": kind},
-    )
-    return saved
-
-
-@router.get("/uploads/{upload_id}")
-async def get_upload(upload_id: str, store: ConfigStore = Depends(_get_store)) -> UploadRecord:
-    record = await store.get_upload(upload_id)
-    if record is None:
-        raise HTTPException(status_code=404, detail="Upload not found")
-    return record
-
-
-@router.delete("/uploads/{upload_id}", status_code=204)
-async def delete_upload(upload_id: str, store: ConfigStore = Depends(_get_store)) -> None:
-    """Delete the upload row and its file. Refused (409) while a camera still plays it."""
-    record = await store.get_upload(upload_id)
-    if record is None:
-        raise HTTPException(status_code=404, detail="Upload not found")
-    if record.camera_ids:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "error": "upload_in_use",
-                "camera_ids": record.camera_ids,
-                "message": (
-                    "This video is used by camera(s) "
-                    + ", ".join(record.camera_ids)
-                    + ". Delete or re-point those cameras first."
-                ),
-            },
-        )
-    await store.delete_upload(upload_id)
-    await store.append_audit("delete_upload", "upload", upload_id, {"filename": record.filename})
 
 
 # ── CRUD ──────────────────────────────────────────────────────────────────────
@@ -342,21 +168,6 @@ async def set_enabled(
     return _with_runtime(record, runtime)
 
 
-@router.post("/{camera_id}/restart")
-async def restart_camera(
-    camera_id: str,
-    store: ConfigStore = Depends(_get_store),
-    runtime: Any = Depends(_get_runtime),
-) -> CameraOut:
-    """Restart the capture session: reconnects a stream or replays a play-once video."""
-    record = await store.get_camera(camera_id)
-    if record is None:
-        raise HTTPException(status_code=404, detail="Camera not found")
-    if runtime is not None:
-        await runtime.refresh_camera(camera_id)
-    return _with_runtime(record, runtime)
-
-
 @router.delete("/{camera_id}", status_code=204)
 async def delete_camera(
     camera_id: str,
@@ -374,37 +185,11 @@ async def delete_camera(
 # ── Test connection ───────────────────────────────────────────────────────────
 
 
-def _probe_payload(
-    url: str,
-    rtsp_transport: str,
-    input_format: str | None = None,
-    input_options: dict[str, str] | None = None,
-) -> dict:
-    result = probe_stream(
-        url, rtsp_transport=rtsp_transport, input_format=input_format, input_options=input_options
-    )
+def _probe_payload(url: str, rtsp_transport: str) -> dict:
+    result = probe_stream(url, rtsp_transport=rtsp_transport)
     data = result.to_dict()
     data["error"] = REDACTOR.redact(data["error"]) if data.get("error") else None
     return data
-
-
-def _no_stream_note(label: str) -> dict:
-    return {"ok": True, "stage": "ok", "error": None, "masked_url": "",
-            "note": f"{label} has no stream to probe."}
-
-
-def _upload_note(upload: UploadRecord | None) -> dict:
-    if upload is None:
-        return {"ok": False, "stage": "url", "masked_url": "",
-                "error": "Uploaded video not found. Upload it first."}
-    size = f"{upload.width}x{upload.height}" if upload.width and upload.height else "unknown size"
-    fps = f"{upload.fps:g} fps" if upload.fps else "unknown rate"
-    dur = f"{upload.duration_s:.1f} s" if upload.duration_s else "unknown length"
-    return {
-        "ok": True, "stage": "ok", "error": None, "masked_url": upload.filename,
-        "width": upload.width, "height": upload.height, "fps": upload.fps, "codec": upload.codec,
-        "note": f"{upload.source_kind} footage, {size}, {fps}, {dur}",
-    }
 
 
 class CameraTestIn(CameraIn):
@@ -417,17 +202,11 @@ class CameraTestIn(CameraIn):
 async def test_unsaved_camera(
     req: CameraTestIn, store: ConfigStore = Depends(_get_store)
 ) -> dict:
-    """Probe the stream, device or file described by the form (not yet saved)."""
+    """Probe the stream described by the form (not yet saved)."""
     profile = get_profile(req.profile)
-    if profile.connector == "usb":
-        options = v4l2_options(
-            req.capture_width, req.capture_height, req.capture_fps, req.capture_format
-        )
-        return await asyncio.to_thread(_probe_payload, req.device, "tcp", "v4l2", options)
-    if profile.connector == "upload":
-        return _upload_note(await store.get_upload(req.upload_id))
-    if not profile.requires_host and profile.connector != "rtsp_url":
-        return _no_stream_note(profile.label)
+    if not profile.requires_host:
+        return {"ok": True, "stage": "ok", "error": None, "masked_url": "",
+                "note": f"{profile.label} has no stream to probe."}
     password = req.password
     if not password and req.camera_id:
         saved = await store.get_camera(req.camera_id)
@@ -445,17 +224,16 @@ async def test_unsaved_camera(
             }
         password = await store.get_camera_secret(req.camera_id)
     try:
-        if profile.connector == "rtsp_url":
-            url = with_credentials(req.source_url, req.username or None, password or None)
-        else:
-            url = profile.build_url(
-                host=req.host, username=req.username or None, password=password or None,
-                port=req.port, channel=req.channel, quality=req.stream_quality,
-                path=req.stream_path or None,
-            )
+        url = profile.build_url(
+            host=req.host, username=req.username or None, password=password or None,
+            port=req.port, channel=req.channel, quality=req.stream_quality,
+            path=req.stream_path or None,
+        )
     except CameraConfigError as exc:
         return {"ok": False, "stage": "url", "error": str(exc), "masked_url": ""}
     REDACTOR.register(password)
+    import asyncio
+
     return await asyncio.to_thread(_probe_payload, url, req.rtsp_transport)
 
 
@@ -469,19 +247,15 @@ async def test_saved_camera(
     if record is None:
         raise HTTPException(status_code=404, detail="Camera not found")
     profile = get_profile(record.profile)
-    if profile.connector == "usb":
-        options = v4l2_options(
-            record.capture_width, record.capture_height, record.capture_fps, record.capture_format
-        )
-        return await asyncio.to_thread(_probe_payload, record.device, "tcp", "v4l2", options)
-    if profile.connector == "upload":
-        return _upload_note(record.upload)
-    if not profile.requires_host and profile.connector != "rtsp_url":
-        return _no_stream_note(profile.label)
+    if not profile.requires_host:
+        return {"ok": True, "stage": "ok", "error": None, "masked_url": "",
+                "note": f"{profile.label} has no stream to probe."}
     try:
         url = await store.feed_url(camera_id)
     except CameraConfigError as exc:
         return {"ok": False, "stage": "url", "error": str(exc), "masked_url": ""}
+    import asyncio
+
     return await asyncio.to_thread(_probe_payload, url, record.rtsp_transport)
 
 

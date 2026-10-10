@@ -58,20 +58,6 @@ class CloudSettings(BaseModel):
     ca_path: str | None = None
 
 
-class UploadSettings(BaseModel):
-    """Limits for video files uploaded from the Cameras page.
-
-    ``max_bytes`` defaults to 2 GiB and can be overridden with
-    ``URBAN_EDGE_UPLOAD_MAX_BYTES``. Files are stored next to the SQLite store
-    unless ``dir`` (or ``URBAN_EDGE_UPLOAD_DIR``) points elsewhere.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    max_bytes: int = Field(default=2 * 1024**3, ge=1024)
-    dir: str | None = None
-
-
 class Settings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -83,7 +69,6 @@ class Settings(BaseModel):
     flow_window_size: int = 30
     cameras: list[CameraSettings] = Field(default_factory=list)
     cloud: CloudSettings = Field(default_factory=CloudSettings)
-    uploads: UploadSettings = Field(default_factory=UploadSettings)
 
 
 _CLOUD_ENV_KEYS: dict[str, str] = {
@@ -100,10 +85,6 @@ _CLOUD_ENV_KEYS: dict[str, str] = {
 }
 
 _TRUTHY = {"1", "true", "yes", "on"}
-_UPLOAD_ENV_KEYS: dict[str, str] = {
-    "URBAN_EDGE_UPLOAD_MAX_BYTES": "max_bytes",
-    "URBAN_EDGE_UPLOAD_DIR": "dir",
-}
 
 
 def _cloud_env_overrides(env: dict[str, str]) -> dict[str, object]:
@@ -144,10 +125,4 @@ def load_settings(
     cloud_raw = dict(raw.get("cloud") or {})  # type: ignore[call-overload]
     cloud_raw.update(_cloud_env_overrides(env))
     raw["cloud"] = cloud_raw
-    upload_raw = dict(raw.get("uploads") or {})  # type: ignore[call-overload]
-    for env_key, field in _UPLOAD_ENV_KEYS.items():
-        value = env.get(env_key)
-        if value:
-            upload_raw[field] = value
-    raw["uploads"] = upload_raw
     return Settings.model_validate(raw)

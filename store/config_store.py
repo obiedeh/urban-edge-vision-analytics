@@ -1,12 +1,3 @@
-"""Async SQLite config store: cameras, uploads, settings, bindings, zones, audit.
-
-Schema changes are additive. ``init()`` applies ``schema.sql`` (``CREATE IF
-NOT EXISTS``) and then adds any column introduced after the first release
-with a default, so a database written by an older build opens unchanged.
-Camera passwords are Fernet-encrypted before they reach a row; pasted RTSP
-links are stored without their credentials. Uploaded video files live in
-``upload_dir`` next to the database, never inside the repository.
-"""
 from __future__ import annotations
 
 import json
@@ -18,18 +9,10 @@ from typing import Any
 
 import aiosqlite
 
-from store.models import (
-    CameraIn,
-    CameraRecord,
-    InferenceSettings,
-    LiveSettings,
-    ModelSettings,
-    UploadRecord,
-)
+from store.models import CameraIn, CameraRecord, InferenceSettings, LiveSettings, ModelSettings
 from store.secrets import SecretBox
-from vision.camera_profiles import CameraConfigError, get_profile, source_kind_for
+from vision.camera_profiles import CameraConfigError, get_profile
 from vision.redaction import REDACTOR, mask_url
-from vision.rtsp_url import with_credentials
 
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
@@ -45,15 +28,6 @@ _CAMERA_COLUMNS: dict[str, str] = {
     "show_on_live": "INTEGER DEFAULT 1",
     "created_at": "TEXT",
     "updated_at": "TEXT",
-    # video feed connectors (rtsp_url, usb, uploaded_video)
-    "source_url": "TEXT DEFAULT ''",
-    "device": "TEXT DEFAULT ''",
-    "capture_width": "INTEGER",
-    "capture_height": "INTEGER",
-    "capture_fps": "REAL",
-    "capture_format": "TEXT DEFAULT ''",
-    "upload_id": "TEXT DEFAULT ''",
-    "playback": "TEXT DEFAULT 'loop'",
 }
 
 
@@ -70,24 +44,15 @@ class ConfigStore:
     """Async SQLite-backed store for cameras, settings, bindings, calibrations, audit."""
 
     def __init__(
-        self,
-        db_path: str = "store/urbanvision.sqlite",
-        secrets: SecretBox | None = None,
-        upload_dir: str | Path | None = None,
+        self, db_path: str = "store/urbanvision.sqlite", secrets: SecretBox | None = None
     ) -> None:
         self._db_path = db_path
         self._initialized = False
         self._secrets = secrets
-        self._upload_dir = Path(upload_dir) if upload_dir else Path(db_path).parent / "uploads"
 
     @property
     def path(self) -> str:
         return self._db_path
-
-    @property
-    def upload_dir(self) -> Path:
-        """Directory holding uploaded video files (next to the database by default)."""
-        return self._upload_dir
 
     @property
     def secrets(self) -> SecretBox:
@@ -122,18 +87,11 @@ class ConfigStore:
         async with aiosqlite.connect(self._db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(query) as cur:
-                rows = [dict(row) for row in await cur.fetchall()]
-        uploads = {u.id: u for u in await self.list_uploads()} if any(
-            r.get("upload_id") for r in rows
-        ) else {}
-        return [self._record(row, uploads.get(row.get("upload_id") or "")) for row in rows]
+                return [self._record(dict(row)) for row in await cur.fetchall()]
 
     async def get_camera(self, camera_id: str) -> CameraRecord | None:
         row = await self._row(camera_id)
-        if not row:
-            return None
-        upload = await self.get_upload(row["upload_id"]) if row.get("upload_id") else None
-        return self._record(row, upload)
+        return self._record(row) if row else None
 
     async def get_camera_secret(self, camera_id: str) -> str:
         """Decrypted password for the runtime only. Never returned by the API."""
@@ -158,26 +116,20 @@ class ConfigStore:
         enc = self.secrets.encrypt(data.password) if data.password else ""
         REDACTOR.register(data.password)
         _validate_url(data, data.password)
-        await self._check_upload(data)
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(
                 """
                 INSERT INTO cameras
                     (id, name, profile, rtsp_url, host, port, username, password_enc,
                      stream_path, stream_quality, channel, rtsp_transport, enabled,
-                     show_on_live, synthetic, detection_adapter, created_at, updated_at,
-                     source_url, device, capture_width, capture_height, capture_fps,
-                     upload_id, playback, capture_format)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?,
-                        ?, ?, ?, ?, ?, ?, ?, ?)
+                     show_on_live, synthetic, detection_adapter, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?)
                 """,
                 (
                     new_id, data.name, data.profile, None, data.host, data.port, data.username,
                     enc, data.stream_path, data.stream_quality, data.channel,
                     data.rtsp_transport, 1 if data.enabled else 0, 1 if data.show_on_live else 0,
                     1 if data.profile == "synthetic" else 0, now, now,
-                    data.source_url, data.device, data.capture_width, data.capture_height,
-                    data.capture_fps, data.upload_id, data.playback, data.capture_format,
                 ),
             )
             await db.commit()
@@ -199,26 +151,20 @@ class ConfigStore:
             enc = row.get("password_enc") or ""
             password = self.secrets.decrypt(enc)
         _validate_url(data, password)
-        await self._check_upload(data)
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(
                 """
                 UPDATE cameras SET
                     name = ?, profile = ?, host = ?, port = ?, username = ?, password_enc = ?,
                     stream_path = ?, stream_quality = ?, channel = ?, rtsp_transport = ?,
-                    enabled = ?, show_on_live = ?, synthetic = ?, updated_at = ?,
-                    source_url = ?, device = ?, capture_width = ?, capture_height = ?,
-                    capture_fps = ?, upload_id = ?, playback = ?, capture_format = ?
+                    enabled = ?, show_on_live = ?, synthetic = ?, updated_at = ?
                 WHERE id = ?
                 """,
                 (
                     data.name, data.profile, data.host, data.port, data.username, enc,
                     data.stream_path, data.stream_quality, data.channel, data.rtsp_transport,
                     1 if data.enabled else 0, 1 if data.show_on_live else 0,
-                    1 if data.profile == "synthetic" else 0, now,
-                    data.source_url, data.device, data.capture_width, data.capture_height,
-                    data.capture_fps, data.upload_id, data.playback, data.capture_format,
-                    camera_id,
+                    1 if data.profile == "synthetic" else 0, now, camera_id,
                 ),
             )
             await db.commit()
@@ -286,7 +232,7 @@ class ConfigStore:
             n += 1
         return candidate
 
-    def _record(self, row: dict[str, Any], upload: UploadRecord | None = None) -> CameraRecord:
+    def _record(self, row: dict[str, Any]) -> CameraRecord:
         profile_key = row.get("profile") or "generic_rtsp"
         try:
             profile = get_profile(profile_key)
@@ -298,10 +244,7 @@ class ConfigStore:
             profile.stream_path(quality, channel) if profile.requires_host else ""
         )
         masked = ""
-        has_url = (profile.requires_host and row.get("host")) or (
-            profile.connector == "rtsp_url" and row.get("source_url")
-        )
-        if has_url:
+        if profile.requires_host and row.get("host"):
             masked = mask_url(_build_url(row, "x" if row.get("password_enc") else ""))
         return CameraRecord(
             id=row["id"],
@@ -321,96 +264,7 @@ class ConfigStore:
             masked_url=masked,
             created_at=row.get("created_at"),
             updated_at=row.get("updated_at"),
-            connector=profile.connector,
-            source_url=row.get("source_url") or "",
-            device=row.get("device") or "",
-            capture_width=row.get("capture_width"),
-            capture_height=row.get("capture_height"),
-            capture_fps=row.get("capture_fps"),
-            capture_format=row.get("capture_format") or "",
-            upload_id=row.get("upload_id") or "",
-            playback="once" if row.get("playback") == "once" else "loop",
-            upload=upload,
-            source_kind=source_kind_for(
-                profile.model_type, upload.source_kind if upload else None
-            ),
         )
-
-    # ── Uploaded videos ───────────────────────────────────────────────────────
-
-    def upload_path(self, record: UploadRecord) -> Path:
-        """Where the bytes of ``record`` live on disk."""
-        return self._upload_dir / (record.stored_name or record.id)
-
-    async def list_uploads(self) -> list[UploadRecord]:
-        await self._ensure_init()
-        async with aiosqlite.connect(self._db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute("SELECT * FROM uploads ORDER BY created_at DESC") as cur:
-                rows = [dict(r) for r in await cur.fetchall()]
-            users = await self._upload_users(db)
-        return [UploadRecord(**row, camera_ids=users.get(row["id"], [])) for row in rows]
-
-    async def get_upload(self, upload_id: str) -> UploadRecord | None:
-        await self._ensure_init()
-        async with aiosqlite.connect(self._db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute("SELECT * FROM uploads WHERE id = ?", (upload_id,)) as cur:
-                row = await cur.fetchone()
-            if row is None:
-                return None
-            users = await self._upload_users(db, upload_id)
-        return UploadRecord(**dict(row), camera_ids=users.get(upload_id, []))
-
-    async def add_upload(self, record: UploadRecord) -> UploadRecord:
-        """Insert (or replace, same id means same bytes) an upload row."""
-        await self._ensure_init()
-        data = record.model_dump(exclude={"camera_ids"})
-        data["created_at"] = data.get("created_at") or datetime.now(UTC).isoformat()
-        columns = ", ".join(data)
-        placeholders = ", ".join(f":{k}" for k in data)
-        async with aiosqlite.connect(self._db_path) as db:
-            await db.execute(
-                f"INSERT OR REPLACE INTO uploads ({columns}) VALUES ({placeholders})", data
-            )
-            await db.commit()
-        saved = await self.get_upload(record.id)
-        assert saved is not None
-        return saved
-
-    async def delete_upload(self, upload_id: str) -> UploadRecord | None:
-        """Remove the row and the file. Returns the record, or None if it did not exist."""
-        record = await self.get_upload(upload_id)
-        if record is None:
-            return None
-        async with aiosqlite.connect(self._db_path) as db:
-            await db.execute("DELETE FROM uploads WHERE id = ?", (upload_id,))
-            await db.commit()
-        try:
-            self.upload_path(record).unlink(missing_ok=True)
-        except OSError:
-            pass
-        return record
-
-    async def _upload_users(
-        self, db: aiosqlite.Connection, upload_id: str | None = None
-    ) -> dict[str, list[str]]:
-        query = "SELECT id, upload_id FROM cameras WHERE upload_id IS NOT NULL AND upload_id != ''"
-        params: tuple[Any, ...] = ()
-        if upload_id is not None:
-            query += " AND upload_id = ?"
-            params = (upload_id,)
-        users: dict[str, list[str]] = {}
-        async with db.execute(query, params) as cur:
-            for row in await cur.fetchall():
-                users.setdefault(str(row[1]), []).append(str(row[0]))
-        return users
-
-    async def _check_upload(self, data: CameraIn) -> None:
-        if get_profile(data.profile).connector != "upload":
-            return
-        if await self.get_upload(data.upload_id) is None:
-            raise ValueError(f"Uploaded video '{data.upload_id}' not found. Upload it first.")
 
     # ── Settings ──────────────────────────────────────────────────────────────
 
@@ -638,12 +492,7 @@ async def _add_missing_columns(
 
 
 def _build_url(row: dict[str, Any], password: str) -> str:
-    """Credentialed feed URL for a row; pasted links get their credentials put back."""
     profile = get_profile(row.get("profile") or "generic_rtsp")
-    if profile.connector == "rtsp_url":
-        return with_credentials(
-            row.get("source_url") or "", row.get("username") or None, password or None
-        )
     return profile.build_url(
         host=row.get("host") or "",
         username=row.get("username") or None,
