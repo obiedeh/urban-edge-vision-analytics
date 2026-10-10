@@ -8,6 +8,12 @@ This is operational analysis with a human in the loop. It is not automated enfor
 
 **Project overview:** [open the one-page showcase](https://obiedeh.github.io/urban-edge-vision-analytics/docs/showcase/) for the pack diagrams, the signal path and screens from the running console. Source: [`docs/showcase/index.html`](docs/showcase/index.html); it is a single self-contained file, so it also opens straight from a clone.
 
+## Editions
+
+This repository is the open core: camera setup in the UI, live video decoupled from inference, model selection with a memory preflight, the four use-case packs and operator review.
+
+**Urban Edge Pro** is developed privately on top of this core. It adds video feed connectors (RTSP links, USB cameras, browser and phone cameras, and uploaded footage) with a source label on every frame and event, plus upload and playback controls on the Live view. [See Urban Edge Pro](https://obiedeh.github.io/urban-edge-vision-analytics-pro.html). Source available on request.
+
 ---
 
 ## What it does today
