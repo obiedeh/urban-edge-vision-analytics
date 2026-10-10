@@ -3,7 +3,7 @@ import { api, type Camera, type InferenceResult, type Point, type RuntimeCameraS
 import { DetectionOverlay } from "@/components/detection-overlay";
 import { CameraStateChip } from "@/components/status-chip";
 import { cn, formatMs, formatSeconds } from "@/lib/utils";
-import { AlertTriangle, BrainCircuit, Video, VideoOff, Loader2, WifiOff, SwitchCamera, Lock } from "lucide-react";
+import { AlertTriangle, BrainCircuit, Video, VideoOff, Loader2, WifiOff, SwitchCamera, Lock, Play, RotateCcw } from "lucide-react";
 
 const STALE_RESULT_S = 8;
 const HTTPS_PORT = 8443;
@@ -60,6 +60,20 @@ export function LiveVideo({ camera, result, runtime, className, showOverlay = tr
   const [imgError, setImgError] = useState(false);
   const [streamKey, setStreamKey] = useState(0);
   const isWebcam = camera.profile === "browser_webrtc";
+  const isClip = camera.connector === "upload";
+  const [replaying, setReplaying] = useState(false);
+  const [replayError, setReplayError] = useState<string | null>(null);
+
+  /** Uploaded video: play the file again from its first frame and re-attach the stream. */
+  async function replay() {
+    setReplaying(true); setReplayError(null);
+    try {
+      await api.cameras.restart(camera.id);
+      setImgError(false); setStreamKey((k) => k + 1);
+    } catch (e) {
+      setReplayError(e instanceof Error ? e.message : "Could not start playback");
+    } finally { setReplaying(false); }
+  }
 
   // Reconnect the MJPEG stream when the camera (re)starts after an error.
   const state = runtime?.state ?? camera.runtime?.state ?? null;
@@ -282,12 +296,40 @@ export function LiveVideo({ camera, result, runtime, className, showOverlay = tr
         </div>
       )}
 
+      {/* Uploaded video finished (play once): offer to play it again */}
+      {isClip && state === "ended" && showOverlay && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/70">
+          <button
+            type="button"
+            onClick={() => void replay()}
+            disabled={replaying}
+            className="inline-flex items-center gap-2 rounded-full border border-primary/60 bg-primary/20 px-5 py-3 text-sm font-semibold text-foreground hover:bg-primary/35 disabled:opacity-60"
+            title="Play the video again from the start"
+          >
+            {replaying ? <Loader2 className="h-5 w-5 animate-spin" /> : <Play className="h-5 w-5" />} Play again
+          </button>
+          <span className="text-[10px] text-muted-foreground">Clip finished. Set Playback to "loop" on the Cameras page to repeat automatically.</span>
+          {replayError && <span className="text-[10px] text-red-400">{replayError}</span>}
+        </div>
+      )}
+      {isClip && state !== "ended" && showOverlay && (
+        <button
+          type="button"
+          onClick={() => void replay()}
+          disabled={replaying}
+          className="absolute right-2 top-2 inline-flex items-center gap-1 rounded border border-border bg-black/70 px-2 py-1 text-[10px] text-foreground hover:border-primary/60 disabled:opacity-60"
+          title="Play the video again from the start"
+        >
+          {replaying ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />} Replay
+        </button>
+      )}
+
       {/* No-signal placeholder (video element stays mounted underneath) */}
-      {!isWebcam && imgError && (
+      {!isWebcam && imgError && !(isClip && state === "ended") && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-muted-foreground bg-black/70 pointer-events-none">
           <WifiOff className="h-6 w-6" />
           <span className="text-xs">
-            {state === null || state === "stopped" ? "Camera not running" : state === "error" ? "Camera error" : "Waiting for frames…"}
+            {state === null || state === "stopped" ? "Camera not running" : state === "error" ? "Camera error" : state === "ended" ? "Clip finished" : "Waiting for frames…"}
           </span>
           {camError && <span className="text-[10px] text-red-400 max-w-md text-center px-4 break-words">{camError}</span>}
         </div>
