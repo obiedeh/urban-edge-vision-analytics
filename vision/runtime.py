@@ -32,13 +32,10 @@ from store.models import CameraRecord, InferenceSettings, ModelSettings
 from vision.adapters import detection_prompt, normalize_detections_to_unit
 from vision.camera_engine import (
     CameraSession,
-    FileCameraSession,
     PushCameraSession,
     StreamCameraSession,
     SyntheticCameraSession,
-    UsbCameraSession,
 )
-from vision.evidence_label import evidence_note, stamp_evidence
 from vision.host_capabilities import default_model_for, detect_host
 from vision.model_runtime import ModelRuntime
 from vision.prompt_presets import preset_focus
@@ -170,19 +167,6 @@ class EdgeRuntime:
             return SyntheticCameraSession(camera.id, **kw)
         if camera.profile == "browser_webrtc":
             return PushCameraSession(camera.id, **kw)
-        if camera.connector == "usb":
-            return UsbCameraSession(
-                camera.id, camera.device, width=camera.capture_width,
-                height=camera.capture_height, fps=camera.capture_fps,
-                pixel_format=camera.capture_format or None, **kw,
-            )
-        if camera.connector == "upload":
-            path = (
-                self.config.upload_path(camera.upload) if camera.upload is not None
-                else self.config.upload_dir / f"{camera.upload_id}.missing"
-            )
-            return FileCameraSession(camera.id, path, loop=camera.playback == "loop", **kw)
-        # vendor profiles, HTTP MJPEG and pasted RTSP links all decode from a URL
         url = await self.config.feed_url(camera.id)
         return StreamCameraSession(camera.id, url, rtsp_transport=camera.rtsp_transport, **kw)
 
@@ -238,7 +222,6 @@ class EdgeRuntime:
                     **session.status(),
                     "name": camera.name if camera else camera_id,
                     "profile": camera.profile if camera else None,
-                    "source_kind": camera.source_kind if camera else None,
                     "packs": runner.status() if runner else None,
                     "last_inference": (
                         {
@@ -289,8 +272,6 @@ class EdgeRuntime:
                 continue
             last_seq = record.seq
             settings = self.inference_settings
-            camera = self.cameras.get(camera_id)
-            source_kind = camera.source_kind if camera else session.kind
             try:
                 frame_bytes, w, h = await asyncio.to_thread(
                     _resize_jpeg, record.jpeg, settings.width, settings.height
@@ -306,11 +287,7 @@ class EdgeRuntime:
                 height=h,
                 source_type=session.kind,
                 frame_bytes=frame_bytes,
-                metadata={
-                    "frame_seq": record.seq,
-                    "display_size": [record.width, record.height],
-                    "source_kind": source_kind,
-                },
+                metadata={"frame_seq": record.seq, "display_size": [record.width, record.height]},
             )
             prompt = detection_prompt(w, h, preset_focus(settings.prompt_preset))
             try:
@@ -336,16 +313,9 @@ class EdgeRuntime:
                 tracked = inferred.model_copy(
                     update={"detections": self._tracked_detections(runner, inferred)}
                 )
-            if pack_events:
-                # Stamp where the frames came from on every event; evidence frames from
-                # uploaded or synthetic sources carry a visible banner as well.
-                pack_events = [
-                    (pid, _label_event(ev, source_kind)) for pid, ev in pack_events
-                ]
-                evidence_jpeg = await asyncio.to_thread(stamp_evidence, frame_bytes, source_kind)
             for pack_id, event in pack_events:
                 await asyncio.to_thread(
-                    self.events.add_event, event, pack_id=pack_id, frame_jpeg=evidence_jpeg
+                    self.events.add_event, event, pack_id=pack_id, frame_jpeg=frame_bytes
                 )
                 if self.runtime_snapshot is not None:
                     self.runtime_snapshot.event_count += 1
@@ -354,9 +324,7 @@ class EdgeRuntime:
                         self.publisher.publish_event(event)
                     except Exception:  # pragma: no cover - publisher must not break the loop
                         logger.exception("publisher failed")
-            result = self._result(
-                camera_id, tracked, pack_events, settings.prompt_preset, record, source_kind
-            )
+            result = self._result(camera_id, tracked, pack_events, settings.prompt_preset, record)
             self.last_results[camera_id] = result
             await self.broadcaster.publish(result)
 
@@ -378,7 +346,6 @@ class EdgeRuntime:
         pack_events: list[tuple[str, TrafficEvent]],
         preset: str,
         record: Any,
-        source_kind: str | None = None,
     ) -> InferenceResult:
         meta = inferred.metadata
         detections = [
@@ -410,7 +377,6 @@ class EdgeRuntime:
             event=first_event,
             metadata={
                 "status": "ok",
-                "source_kind": source_kind,
                 "detections": detections,
                 "frame_seq": record.seq,
                 "frame_size": [inferred.width, inferred.height],
@@ -425,7 +391,6 @@ class EdgeRuntime:
         )
 
     async def _publish_status(self, camera_id: str, status: str, session: CameraSession) -> None:
-        camera = self.cameras.get(camera_id)
         result = InferenceResult(
             result_id=str(uuid.uuid4()),
             camera_id=camera_id,
@@ -438,7 +403,6 @@ class EdgeRuntime:
             event=None,
             metadata={
                 "status": status,
-                "source_kind": camera.source_kind if camera else None,
                 "detections": [],
                 "camera_state": session.stats.state,
                 "model_error": self.model.last_error,
@@ -446,15 +410,6 @@ class EdgeRuntime:
         )
         self.last_results[camera_id] = result
         await self.broadcaster.publish(result)
-
-
-def _label_event(event: TrafficEvent, source_kind: str) -> TrafficEvent:
-    """Return ``event`` with ``source_kind`` set and, for non-live sources, an evidence note."""
-    update: dict[str, Any] = {"source_kind": source_kind}
-    note = evidence_note(source_kind)
-    if note:
-        update["metadata"] = {**event.metadata, "evidence_note": note}
-    return event.model_copy(update=update)
 
 
 def _resize_jpeg(jpeg: bytes, width: int, height: int) -> tuple[bytes, int, int]:

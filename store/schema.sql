@@ -12,26 +12,7 @@ CREATE TABLE IF NOT EXISTS cameras (
 );
 -- Columns added by ConfigStore.init() migrations:
 --   host, port, username, password_enc, stream_path, stream_quality, channel,
---   rtsp_transport, show_on_live, created_at, updated_at,
---   source_url, device, capture_width, capture_height, capture_fps, upload_id, playback
-
--- Uploaded video files (the bytes live next to the database, see ConfigStore.upload_dir)
-CREATE TABLE IF NOT EXISTS uploads (
-    id TEXT PRIMARY KEY,
-    filename TEXT NOT NULL,
-    stored_name TEXT NOT NULL,
-    content_type TEXT NOT NULL,
-    size_bytes INTEGER NOT NULL,
-    sha256 TEXT NOT NULL,
-    source_kind TEXT NOT NULL DEFAULT 'recorded',   -- recorded | generated
-    duration_s REAL,
-    width INTEGER,
-    height INTEGER,
-    fps REAL,
-    codec TEXT,
-    frames INTEGER,
-    created_at TEXT NOT NULL
-);
+--   rtsp_transport, show_on_live, created_at, updated_at
 
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,

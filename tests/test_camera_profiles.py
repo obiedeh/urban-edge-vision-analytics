@@ -87,19 +87,3 @@ def test_legacy_json_config_maps_stream_to_quality(monkeypatch) -> None:
     )
     assert conn.feed_url == "rtsp://u:secret@192.0.2.10:554/stream2"
     assert conn.masked_feed_url == "rtsp://***:***@192.0.2.10:554/stream2"
-
-
-def test_connector_profiles_and_source_kinds() -> None:
-    from vision.camera_profiles import CONNECTORS, SOURCE_KINDS, source_kind_for
-
-    by_type = {p["model_type"]: p for p in list_profiles()}
-    assert {"rtsp_url", "usb", "uploaded_video", "browser_webrtc", "synthetic"} <= set(by_type)
-    assert by_type["rtsp_url"]["connector"] == "rtsp_url"
-    assert by_type["usb"]["connector"] == "usb" and not by_type["usb"]["requires_host"]
-    assert by_type["uploaded_video"]["connector"] == "upload"
-    assert by_type["tapo"]["connector"] == "network"
-    assert {p["connector"] for p in by_type.values()} == set(CONNECTORS)
-    assert {source_kind_for(p) for p in by_type} <= set(SOURCE_KINDS)
-    for key in ("rtsp_url", "usb", "uploaded_video"):
-        with pytest.raises(CameraConfigError):
-            get_profile(key).build_url("h", None, None)

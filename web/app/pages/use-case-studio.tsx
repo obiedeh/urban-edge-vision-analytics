@@ -7,7 +7,6 @@ import {
 import { PackToggleGrid } from "@/components/pack-toggle-grid";
 import { ZoneCanvas, PointList, type Shape } from "@/components/zone-canvas";
 import { CameraStateChip, ProfileChip, StatusMsg } from "@/components/status-chip";
-import { SourceKindBadge } from "@/components/source-kind-badge";
 import { cn, inputCls, selectCls, btnPrimary } from "@/lib/utils";
 import { Save, Loader2, ChevronDown, ChevronRight } from "lucide-react";
 
@@ -461,7 +460,6 @@ export function UseCaseStudio() {
             {cameras.map((c) => <option key={c.id} value={c.id}>{c.name}{c.enabled ? "" : " (disabled)"}</option>)}
           </select>
           {selected && <ProfileChip profile={selected.profile} />}
-          {selected && <SourceKindBadge kind={selected.source_kind} />}
           {selected && <CameraStateChip state={selected.enabled ? selected.runtime?.state : "stopped"} />}
         </div>
       </div>
