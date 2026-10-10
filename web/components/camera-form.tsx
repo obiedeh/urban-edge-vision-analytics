@@ -262,6 +262,8 @@ interface Props {
   onCancel: () => void;
   /** called after a successful upload so the parent can refresh its uploads list */
   onUploaded?: (u: UploadRecord) => void;
+  /** profile to preselect when creating (e.g. "uploaded_video" from the Upload video button) */
+  initialProfile?: string;
 }
 
 function blankForm(profile: CameraProfile | undefined): CameraIn {
@@ -289,9 +291,11 @@ function blankForm(profile: CameraProfile | undefined): CameraIn {
   };
 }
 
-export function CameraForm({ profiles, camera, onSaved, onCancel, onUploaded }: Props) {
+export function CameraForm({ profiles, camera, onSaved, onCancel, onUploaded, initialProfile: initialProfileType }: Props) {
   const byType = useMemo(() => new Map(profiles.map((p) => [p.model_type, p])), [profiles]);
-  const initialProfile = camera ? byType.get(camera.profile) : profiles.find((p) => p.model_type === "generic_rtsp") ?? profiles[0];
+  const initialProfile = camera
+    ? byType.get(camera.profile)
+    : (initialProfileType ? byType.get(initialProfileType) : undefined) ?? profiles.find((p) => p.model_type === "generic_rtsp") ?? profiles[0];
 
   const [form, setForm] = useState<CameraIn>(() => (camera ? cameraToIn(camera) : blankForm(initialProfile)));
   /** true while stream_path tracks the profile default (auto-fill mode) */
@@ -391,7 +395,7 @@ export function CameraForm({ profiles, camera, onSaved, onCancel, onUploaded }: 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-foreground">{camera ? `Edit camera: ${camera.name}` : "Add camera"}</h2>
+        <h2 className="text-sm font-semibold text-foreground">{camera ? `Edit camera: ${camera.name}` : connector === "upload" ? "Upload a video and play it as a camera" : "Add camera"}</h2>
         <button type="button" onClick={onCancel} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
       </div>
 
