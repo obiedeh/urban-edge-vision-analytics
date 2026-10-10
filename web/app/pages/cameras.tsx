@@ -290,6 +290,7 @@ export function CamerasPage() {
             profiles={profiles}
             camera={editing === "new" || editing === "upload" ? null : editing}
             initialProfile={editing === "upload" ? "uploaded_video" : undefined}
+            openFilePicker={editing === "upload"}
             onSaved={(cam) => { upsert(cam); setEditing(null); void reload(); }}
             onCancel={() => setEditing(null)}
             onUploaded={() => { void reload(); }}
