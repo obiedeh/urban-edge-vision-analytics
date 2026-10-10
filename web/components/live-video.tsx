@@ -86,6 +86,15 @@ export function LiveVideo({ camera, result, runtime, className, showOverlay = tr
 
   useEffect(() => { setImgError(false); setStreamKey((k) => k + 1); setIntrinsic(null); }, [camera.id]);
 
+  // An MJPEG <img> holds its HTTP connection for as long as the element lives — even after it is
+  // removed from the DOM, until garbage collection. Browsers allow only ~6 connections per host,
+  // so release it explicitly whenever the stream element is replaced or the view unmounts.
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  useEffect(() => {
+    const el = imgRef.current;
+    return () => { if (el) el.src = ""; };
+  }, [streamKey, camera.id]);
+
   // ── WebRTC (browser webcam) ──────────────────────────────────────────────
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
@@ -191,6 +200,7 @@ export function LiveVideo({ camera, result, runtime, className, showOverlay = tr
       ) : (
         <img
           key={streamKey}
+          ref={imgRef}
           src={api.stream.mjpegUrl(camera.id, maxFps)}
           alt={`Live: ${camera.name}`}
           className="absolute inset-0 w-full h-full object-contain"
