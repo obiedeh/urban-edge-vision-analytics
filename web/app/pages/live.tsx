@@ -16,9 +16,11 @@ const COUNTS_POLL_MS = 5_000;
 const COUNTS_HOURS = 24;
 const HOURLY_BARS = 12;
 const MAX_EVENTS = 50;
-// Browsers allow ~6 concurrent HTTP/1.1 connections per host. The main MJPEG stream and the
-// SSE results feed hold two; keep the live thumbnails to two more so polling fetches never starve.
-const MAX_MJPEG_THUMBS = 2;
+// Browsers allow ~6 concurrent HTTP/1.1 connections per host, and an MJPEG <img> holds one for
+// as long as it lives. The main stream and the SSE results feed take two; thumbnails therefore
+// poll snapshots (short requests) instead of holding streams, so the events, counts and status
+// polls never starve — even with a second console tab open.
+const MAX_MJPEG_THUMBS = 0;
 
 // ── Recent events side panel ──────────────────────────────────────────────────
 
@@ -392,17 +394,22 @@ function Thumb({
   const isWebcam = camera.profile === "browser_webrtc";
   const [snap, setSnap] = useState(() => api.stream.snapshotUrl(camera.id));
   const [err, setErr] = useState(false);
+  const imgRef = useRef<HTMLImageElement | null>(null);
   useEffect(() => {
     if (mode !== "snapshot") return;
     const t = setInterval(() => setSnap(api.stream.snapshotUrl(camera.id)), 2000);
     return () => clearInterval(t);
   }, [mode, camera.id]);
+  // Release the MJPEG connection when the thumbnail unmounts or changes camera; a detached
+  // <img> otherwise keeps streaming until the browser garbage-collects it.
+  useEffect(() => () => { if (imgRef.current) imgRef.current.src = ""; }, [mode, camera.id]);
   useEffect(() => { setErr(false); }, [camera.id, state]);
 
   return (
     <button onClick={onClick} className="group relative block rounded-lg border border-border overflow-hidden bg-black aspect-video hover:border-primary/50 transition-colors text-left">
       {!isWebcam && !err && (
         <img
+          ref={imgRef}
           src={mode === "mjpeg" ? api.stream.mjpegUrl(camera.id, 5) : snap}
           alt={camera.name}
           className="absolute inset-0 w-full h-full object-cover"
