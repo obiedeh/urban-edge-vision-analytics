@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api, apiErrorMessage, cameraToIn, type Camera, type CameraProfile, type CameraTestResult, type UploadRecord } from "@/lib/api";
 import { CameraForm, TestResultCard, describeUpload } from "@/components/camera-form";
 import { CameraStateChip, ProfileChip, StatusMsg } from "@/components/status-chip";
 import { SourceKindBadge } from "@/components/source-kind-badge";
 import { cn, btnGhost, btnPrimary, btnDanger, formatSeconds } from "@/lib/utils";
-import { PlusCircle, Pencil, Trash2, Wifi, Loader2, Eye, EyeOff, Power, Video, RotateCcw, Film, ChevronDown, ChevronRight } from "lucide-react";
+import { PlusCircle, Pencil, Trash2, Wifi, Loader2, Eye, EyeOff, Power, Video, RotateCcw, Film, ChevronDown, ChevronRight, Upload } from "lucide-react";
 
 function Switch({ checked, onChange, disabled, title }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; title?: string }) {
   return (
@@ -158,7 +158,7 @@ function CameraCard({
   );
 }
 
-function UploadsSection({ uploads, cameras, onChanged }: { uploads: UploadRecord[]; cameras: Camera[]; onChanged: () => void }) {
+function UploadsSection({ uploads, cameras, onChanged, onUpload }: { uploads: UploadRecord[]; cameras: Camera[]; onChanged: () => void; onUpload: () => void }) {
   const [open, setOpen] = useState(true);
   const [busy, setBusy] = useState<string>("");
   const [err, setErr] = useState<string | null>(null);
@@ -173,14 +173,21 @@ function UploadsSection({ uploads, cameras, onChanged }: { uploads: UploadRecord
 
   return (
     <div className="rounded-lg border border-border bg-card">
-      <button onClick={() => setOpen((v) => !v)} className="flex w-full items-center gap-2 px-4 py-2.5 text-xs font-medium text-muted-foreground hover:text-foreground">
-        {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-        <Film className="h-3.5 w-3.5" /> Uploaded videos
-        <span className="text-[10px] font-normal">{uploads.length} file{uploads.length === 1 ? "" : "s"} · stored next to the database, outside the repository · delete removes the file</span>
-      </button>
+      <div className="flex w-full items-center gap-2 px-4 py-2.5 text-xs font-medium text-muted-foreground">
+        <button onClick={() => setOpen((v) => !v)} className="flex items-center gap-2 hover:text-foreground">
+          {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          <Film className="h-3.5 w-3.5" /> Uploaded videos
+          <span className="text-[10px] font-normal">{uploads.length} file{uploads.length === 1 ? "" : "s"} · stored next to the database, outside the repository · delete removes the file</span>
+        </button>
+        <button onClick={onUpload} className={cn(btnGhost, "ml-auto")}><Upload className="h-3 w-3" /> Upload video</button>
+      </div>
       {open && (
         <div className="border-t border-border divide-y divide-border">
-          {uploads.length === 0 && <p className="px-4 py-3 text-xs text-muted-foreground">No uploads yet. Add a camera with the <b>Uploaded video</b> profile to upload an MP4, MOV or MKV.</p>}
+          {uploads.length === 0 && (
+            <p className="px-4 py-3 text-xs text-muted-foreground">
+              No uploads yet. Click <button onClick={onUpload} className="text-primary underline underline-offset-2 font-medium">Upload video</button> to add an MP4, MOV or MKV and play it as a camera.
+            </p>
+          )}
           {uploads.map((u) => (
             <div key={u.id} className="flex items-center gap-3 px-4 py-2 text-xs flex-wrap">
               <SourceKindBadge kind={u.source_kind === "generated" ? "uploaded_generated" : "uploaded_recorded"} />
@@ -212,7 +219,19 @@ export function CamerasPage() {
   const [profiles, setProfiles] = useState<CameraProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [editing, setEditing] = useState<Camera | null | "new">(null);
+  /** null = closed, "new" = add camera, "upload" = add camera with the Uploaded video profile preselected */
+  const [editing, setEditing] = useState<Camera | null | "new" | "upload">(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // /cameras?action=upload (linked from Live) opens the upload form directly.
+  useEffect(() => {
+    if (searchParams.get("action") === "upload") {
+      setEditing("upload");
+      const next = new URLSearchParams(searchParams);
+      next.delete("action");
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   async function reload() {
     try {
@@ -245,12 +264,21 @@ export function CamerasPage() {
           <h1 className="text-lg font-semibold">Cameras</h1>
           <span className="text-xs text-muted-foreground">{cameras.length} configured · {cameras.filter((c) => c.runtime?.state === "streaming").length} streaming</span>
         </div>
-        <button
-          onClick={() => setEditing(editing === "new" ? null : "new")}
-          className={cn(btnPrimary, editing === "new" && "bg-primary/70")}
-        >
-          <PlusCircle className="h-3.5 w-3.5" /> Add camera
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setEditing(editing === "upload" ? null : "upload")}
+            className={cn(btnPrimary, editing === "upload" && "bg-primary/70")}
+            title="Upload an MP4, MOV or MKV and play it as a camera"
+          >
+            <Upload className="h-3.5 w-3.5" /> Upload video
+          </button>
+          <button
+            onClick={() => setEditing(editing === "new" ? null : "new")}
+            className={cn(btnPrimary, editing === "new" && "bg-primary/70")}
+          >
+            <PlusCircle className="h-3.5 w-3.5" /> Add camera
+          </button>
+        </div>
       </div>
 
       {error && <StatusMsg kind="err" text={error} />}
@@ -258,8 +286,10 @@ export function CamerasPage() {
       {editing !== null && profiles.length > 0 && (
         <div className="rounded-lg border border-primary/40 bg-card px-5 py-5">
           <CameraForm
+            key={editing === "new" || editing === "upload" ? editing : editing.id}
             profiles={profiles}
-            camera={editing === "new" ? null : editing}
+            camera={editing === "new" || editing === "upload" ? null : editing}
+            initialProfile={editing === "upload" ? "uploaded_video" : undefined}
             onSaved={(cam) => { upsert(cam); setEditing(null); void reload(); }}
             onCancel={() => setEditing(null)}
             onUploaded={() => { void reload(); }}
@@ -270,8 +300,12 @@ export function CamerasPage() {
       {loading && <div className="space-y-3">{[...Array(2)].map((_, i) => <div key={i} className="h-28 rounded-lg snapshot-shimmer" />)}</div>}
 
       {!loading && cameras.length === 0 && editing === null && (
-        <div className="rounded-lg border border-dashed border-border bg-card/50 px-4 py-10 text-center text-sm text-muted-foreground">
-          No cameras yet. <button onClick={() => setEditing("new")} className="text-primary underline underline-offset-2">Add a camera</button> — pick a vendor profile, paste an RTSP link, choose a USB camera, upload a video, or share your browser's camera. Use the <b>Synthetic test feed</b> profile for a demo without hardware.
+        <div className="rounded-lg border border-dashed border-border bg-card/50 px-4 py-10 text-center text-sm text-muted-foreground space-y-4">
+          <p>No cameras yet. Pick a vendor profile, paste an RTSP link, choose a USB camera, upload a video, or share your browser's camera. Use the <b>Synthetic test feed</b> profile for a demo without hardware.</p>
+          <div className="flex items-center justify-center gap-3 flex-wrap">
+            <button onClick={() => setEditing("upload")} className={btnPrimary}><Upload className="h-3.5 w-3.5" /> Upload video</button>
+            <button onClick={() => setEditing("new")} className={btnGhost}><PlusCircle className="h-3.5 w-3.5" /> Add camera</button>
+          </div>
         </div>
       )}
 
@@ -282,13 +316,13 @@ export function CamerasPage() {
             camera={cam}
             onEdit={() => setEditing(cam)}
             onChanged={upsert}
-            onDeleted={() => { setCameras((prev) => prev.filter((c) => c.id !== cam.id)); if (editing !== "new" && editing?.id === cam.id) setEditing(null); void reload(); }}
+            onDeleted={() => { setCameras((prev) => prev.filter((c) => c.id !== cam.id)); if (typeof editing === "object" && editing?.id === cam.id) setEditing(null); void reload(); }}
           />
         ))}
       </div>
 
-      {!loading && (uploads.length > 0 || cameras.some((c) => c.connector === "upload")) && (
-        <UploadsSection uploads={uploads} cameras={cameras} onChanged={() => { void reload(); }} />
+      {!loading && (
+        <UploadsSection uploads={uploads} cameras={cameras} onChanged={() => { void reload(); }} onUpload={() => setEditing("upload")} />
       )}
     </div>
   );

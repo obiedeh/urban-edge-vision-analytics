@@ -294,7 +294,8 @@ export function LivePage() {
             <WifiOff className="h-8 w-8" />
             <p className="text-sm">{cameras.length === 0 ? "No cameras configured." : "No enabled camera is marked \"Show on Live\"."}</p>
             <p className="text-xs">
-              Go to <Link to="/cameras" className="text-primary underline underline-offset-2">Cameras</Link> to {cameras.length === 0 ? "add one" : "enable one"}.
+              Go to <Link to="/cameras" className="text-primary underline underline-offset-2">Cameras</Link> to {cameras.length === 0 ? "add one" : "enable one"},
+              or <Link to="/cameras?action=upload" className="text-primary underline underline-offset-2">upload a video</Link> to play as a camera.
             </p>
           </div>
         )}
