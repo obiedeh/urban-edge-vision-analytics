@@ -174,19 +174,13 @@ function UsbSection({ form, set, busy }: { form: CameraIn; set: <K extends keyof
 
 // ── Upload picker ────────────────────────────────────────────────────────────
 
-function UploadSection({ form, set, busy, onUploaded, openFilePicker }: { form: CameraIn; set: <K extends keyof CameraIn>(k: K, v: CameraIn[K]) => void; busy: boolean; onUploaded?: (u: UploadRecord) => void; openFilePicker?: boolean }) {
+function UploadSection({ form, set, busy, onUploaded }: { form: CameraIn; set: <K extends keyof CameraIn>(k: K, v: CameraIn[K]) => void; busy: boolean; onUploaded?: (u: UploadRecord) => void }) {
   const [uploads, setUploads] = useState<UploadRecord[]>([]);
   const [kind, setKind] = useState<UploadSourceKind>("recorded");
   const [file, setFile] = useState<File | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
-
-  // Opened from the "Upload video" button: go straight to the file chooser.
-  // The click still counts as the user's gesture, so the browser allows it.
-  useEffect(() => {
-    if (openFilePicker) fileRef.current?.click();
-  }, [openFilePicker]);
 
   async function load() {
     try { setUploads(await api.cameras.uploads.list()); }
@@ -268,10 +262,6 @@ interface Props {
   onCancel: () => void;
   /** called after a successful upload so the parent can refresh its uploads list */
   onUploaded?: (u: UploadRecord) => void;
-  /** profile to preselect when creating (e.g. "uploaded_video" from the Upload video button) */
-  initialProfile?: string;
-  /** open the file chooser as soon as the form shows (Upload video button) */
-  openFilePicker?: boolean;
 }
 
 function blankForm(profile: CameraProfile | undefined): CameraIn {
@@ -299,11 +289,9 @@ function blankForm(profile: CameraProfile | undefined): CameraIn {
   };
 }
 
-export function CameraForm({ profiles, camera, onSaved, onCancel, onUploaded, initialProfile: initialProfileType, openFilePicker }: Props) {
+export function CameraForm({ profiles, camera, onSaved, onCancel, onUploaded }: Props) {
   const byType = useMemo(() => new Map(profiles.map((p) => [p.model_type, p])), [profiles]);
-  const initialProfile = camera
-    ? byType.get(camera.profile)
-    : (initialProfileType ? byType.get(initialProfileType) : undefined) ?? profiles.find((p) => p.model_type === "generic_rtsp") ?? profiles[0];
+  const initialProfile = camera ? byType.get(camera.profile) : profiles.find((p) => p.model_type === "generic_rtsp") ?? profiles[0];
 
   const [form, setForm] = useState<CameraIn>(() => (camera ? cameraToIn(camera) : blankForm(initialProfile)));
   /** true while stream_path tracks the profile default (auto-fill mode) */
@@ -403,7 +391,7 @@ export function CameraForm({ profiles, camera, onSaved, onCancel, onUploaded, in
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-foreground">{camera ? `Edit camera: ${camera.name}` : connector === "upload" ? "Upload a video and play it as a camera" : "Add camera"}</h2>
+        <h2 className="text-sm font-semibold text-foreground">{camera ? `Edit camera: ${camera.name}` : "Add camera"}</h2>
         <button type="button" onClick={onCancel} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
       </div>
 
@@ -458,7 +446,7 @@ export function CameraForm({ profiles, camera, onSaved, onCancel, onUploaded, in
       )}
 
       {connector === "usb" && <UsbSection form={form} set={set} busy={busy} />}
-      {connector === "upload" && <UploadSection form={form} set={set} busy={busy} onUploaded={onUploaded} openFilePicker={!camera && openFilePicker} />}
+      {connector === "upload" && <UploadSection form={form} set={set} busy={busy} onUploaded={onUploaded} />}
 
       {needsHost && (
         <>
