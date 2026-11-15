@@ -317,9 +317,26 @@ report    direction, speed band, descriptor</div>
   </div>
 </section>
 
+<section aria-labelledby="cosmos3-h">
+  <div class="head">
+    <span class="label">Cosmos 3 on the Jetson AGX Thor, 2026-11-14 and 2026-11-15</span>
+    <h2 id="cosmos3-h">Generated test events, and a model asked to predict the next four seconds</h2>
+    <p>Run with the full build of this project, which is not part of this repository. The reports, prompts and records are committed under <code>reports/generation/</code>. Generated footage throughout: offline test data, not live prediction, and no real-world accuracy.</p>
+  </div>
+  <div class="trust">
+    <div><b>Rare events, drawn on demand</b><p>A car rolling through the stop, a car running it with cross traffic, a pedestrian stepping out from behind a parked pickup. Cosmos 3 Edge drew each five-second clip from a still in 116 to 125 s at about 2.6 Wh, and the production packs scored them.</p></div>
+    <div><b>Prompts the generator follows</b><p>The framework's prompt upsampler turned "never stops" into "stops precisely at the STOP line". Hand-written prompts with compass directions, exclusions and timing fixed two of the three events. The third also needed the second vehicle placed in the starting frame.</p></div>
+    <div><b>The next four seconds</b><p>Given the first second of six stop-sign scenes and a prompt that names no outcome, Cosmos 3 Edge's continuation got the same stop-sign verdict on 2 of 6, in part on 1, and the opposite on both pedestrian scenes.</p></div>
+  </div>
+  <div class="callout">
+    <strong>A person still has to watch the clip</strong>
+    <p>On one generated clip the packs reported four vehicles and a rolling stop, which looked plausible, while the clip never showed the cross traffic it was made for. The detector cannot tell that a generated clip missed its event.</p>
+  </div>
+</section>
+
 <section aria-labelledby="status-h">
   <div class="head">
-    <span class="label">Status, October 2026</span>
+    <span class="label">Status, November 2026</span>
     <h2 id="status-h">What is proven, and what is next</h2>
   </div>
   <div class="ledger">
@@ -329,6 +346,7 @@ report    direction, speed band, descriptor</div>
         <li><span class="mk ok"></span><span><b>Runs end to end</b> from camera setup to the Review queue, on the Thor and on a workstation.</span></li>
         <li><span class="mk ok"></span><span><b>271 automated tests pass</b> covering camera setup, connection probing, credential handling, model switching and memory preflight, all four packs and the review flow.</span></li>
         <li><span class="mk ok"></span><span><b>CI on every push</b>: lint, type checks, tests and the console build.</span></li>
+        <li><span class="mk ok"></span><span><b>Cosmos 3 runs on the Thor</b>: generated rare events, the prompt rounds and a next-four-seconds prediction, in the full build.</span></li>
       </ul>
     </div>
     <div class="col">
