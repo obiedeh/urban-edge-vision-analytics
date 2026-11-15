@@ -1,0 +1,198 @@
+{
+  "schema": "rare-event-clip-plan-v1",
+  "frozen": "zones, gates, prompts and seed were written before any clip was generated",
+  "generation": {
+    "model": "nvidia/Cosmos3-Edge",
+    "mode": "image2video",
+    "resolution": "480",
+    "aspect_ratio": "16,9",
+    "num_frames": 121,
+    "seed": 20261114,
+    "prompt_upsampler": "cosmos_framework.inference.prompt_upsampling, mode image2video, served by nvidia/Cosmos3-Edge reasoner",
+    "framework_commit": "1f1737931214166d5e7b253def319c562cf7a1eb",
+    "checkpoint_revision": "6afc1256321c3a8e623d89be3bc5117a1e90f96b",
+    "flags": [
+      "--no-use-torch-compile"
+    ]
+  },
+  "starting_frames_note": "Starting frames are stills from the existing stop-sign scene clips, which are themselves generated footage.",
+  "clips": [
+    {
+      "id": "roll_through",
+      "event": "a car rolls through the stop sign without stopping",
+      "file": "roll_through.mp4",
+      "starting_frame": "roll_through_start.png",
+      "starting_frame_sha256": "2a02a3a4e8d3440bf250031c2ee9846b4409b224b1f627b88b135a673ef2a095",
+      "starting_frame_source": "ue_P1b_rolling_stop_VIOLATION.mp4 at 2.0 s",
+      "short_prompt": "The silver sedan approaches the stop line, slows only slightly, rolls through the stop sign without ever stopping and continues straight across the intersection. Fixed elevated traffic camera that does not move, daytime, overcast light, quiet suburban four-way intersection with a stop sign, crosswalk and stop line. Realistic motion, no camera shake, no cuts.",
+      "upsampled_prompt": "{\"subjects\": [{\"description\": \"A silver four-door sedan driving through a suburban intersection.\", \"appearance_details\": \"Polished silver paint, visible headlights and taillights, black side mirrors, silver wheels.\", \"relationship\": \"Primary subject moving through the intersection.\", \"location\": \"Center of the frame, moving toward and through the stop sign.\", \"relative_size\": \"Medium within frame\", \"orientation\": \"Facing away from the camera, moving straight up the intersection.\", \"pose\": \"Driving forward.\", \"action\": \"Approaches the stop line, slows slightly but does not come to a full stop, and proceeds straight through the intersection.\", \"state_changes\": \"Moves from the middle of the intersection toward and past the stop line; rolls through the sign without stopping.\", \"clothing\": \"\", \"expression\": \"\", \"gender\": \"\", \"age\": \"\", \"skin_tone_and_texture\": \"\", \"facial_features\": \"\", \"number_of_subjects\": 1, \"number_of_arms\": 0, \"number_of_legs\": 0}], \"background_setting\": \"A quiet suburban four-way intersection with well-maintained lawns, small residential houses, and a central stop line. A red octagonal STOP sign with white lettering is mounted at the intersection. Two pedestrian crosswalks span the middle of the road, with a single car visible in the first view from the intersection. The street is asphalted with white painted markings, including a STOP box and crosswalk lines.\", \"lighting\": {\"conditions\": \"Overcast daylight\", \"direction\": \"Diffuse, top-lit\", \"shadows\": \"Soft, minimal shadows beneath vehicles and curbs\", \"illumination_effect\": \"Even, flat illumination with low contrast\"}, \"aesthetics\": {\"composition\": \"Centered perspective from an elevated traffic camera, leading lines converging at the intersection center.\", \"color_scheme\": \"Muted greens of grass, gray asphalt, white road markings, silver vehicle, red STOP sign.\", \"mood_atmosphere\": \"Calm, mundane, suburban.\", \"patterns\": \"Repeating white crosswalk stripes across the road.\"}, \"cinematography\": {\"camera_motion\": \"Static\", \"framing\": \"Wide shot\", \"camera_angle\": \"High-angle (bird's-eye)\", \"depth_of_field\": \"Deep\", \"focus\": \"Sharp focus throughout the scene\", \"lens_focal_length\": \"Wide-angle\"}, \"style_medium\": \"Live-action video (traffic monitoring footage)\", \"artistic_style\": \"Realistic documentary\", \"context\": \"Suburban traffic monitoring or surveillance footage capturing typical vehicle behavior at a four-way stop.\", \"actions\": [{\"time\": \"0:00-0:02\", \"description\": \"A silver sedan enters the frame from the lower portion, approaching the stop sign from the left side.\"}, {\"time\": \"0:02-0:04\", \"description\": \"The sedan stops precisely at the STOP line and crosswalk behind the red STOP sign.\"}, {\"time\": \"0:04-0:05\", \"description\": \"The driver yields briefly, then proceeds straight through the intersection.\"}, {\"time\": \"0:05-0:05\", \"description\": \"The sedan continues moving straight ahead, exiting the frame toward the center of the road.\"}], \"text_and_signage_elements\": [{\"text\": \"STOP\", \"category\": \"scene_sign\", \"appearance\": \"White capital letters on a red octagonal sign with white text, slightly weathered.\", \"spatial_temporal\": \"Mounted on a pole at the intersection center, visible throughout the entire video.\", \"context\": \"Traffic control sign mandating vehicles to stop before proceeding.\"}], \"segments\": [{\"segment_index\": 0, \"time_range\": \"0:00-0:05\", \"description\": \"A silver sedan approaches the four-way intersection and rolls through the stop sign without stopping.\", \"key_changes\": \"Vehicle transitions from approach to clearing the intersection; no lane changes.\", \"camera\": \"Static high-angle wide shot.\"}], \"transitions\": [], \"temporal_caption\": \"An elevated camera view captures a silver sedan approaching a suburban four-way intersection; it stops at the STOP sign and proceeds straight through without pausing.\", \"audio_description\": \"Ambient suburban environment: light traffic-related hum, faint tire crunch on asphalt, distant bird calls. No prominent sound of the sedan beyond low engine hum.\", \"resolution\": {\"H\": 480, \"W\": 832}, \"aspect_ratio\": \"16,9\", \"duration\": \"5s\", \"fps\": 24}",
+      "stop_zone": {
+        "polygon": [
+          [
+            0.36,
+            0.5
+          ],
+          [
+            0.67,
+            0.5
+          ],
+          [
+            0.7,
+            0.82
+          ],
+          [
+            0.3,
+            0.82
+          ]
+        ],
+        "approach_direction": "N",
+        "compliance_thresholds": {}
+      },
+      "speed_calibration": {
+        "gate_a": [
+          [
+            0.28,
+            0.85
+          ],
+          [
+            0.72,
+            0.85
+          ]
+        ],
+        "gate_b": [
+          [
+            0.36,
+            0.5
+          ],
+          [
+            0.67,
+            0.5
+          ]
+        ],
+        "real_world_distance_m": 8.0,
+        "posted_speed_kph": 40.0,
+        "assumption": "8 m between gates is an estimate from car length on screen, not a survey"
+      },
+      "matches_prompt": null,
+      "checked_by": null
+    },
+    {
+      "id": "run_stop_cross_traffic",
+      "event": "a car runs the stop at speed while another car crosses",
+      "file": "run_stop_cross_traffic.mp4",
+      "starting_frame": "run_stop_cross_traffic_start.png",
+      "starting_frame_sha256": "b6ce5241eeb096f9e3808f2c5627da4a4777d48aeb2eb6e2c442b188dff34627",
+      "starting_frame_source": "ue_P1a_full_stop_COMPLIANT.mp4 at 2.0 s",
+      "short_prompt": "The silver sedan accelerates and drives straight through the stop sign at speed without braking, while a second car crosses the intersection from left to right on the cross street directly ahead of it, a near miss. Fixed elevated traffic camera that does not move, daytime, overcast light, quiet suburban four-way intersection with a stop sign, crosswalk and stop line. Realistic motion, no camera shake, no cuts.",
+      "upsampled_prompt": "{\"subjects\": [{\"description\": \"A silver four-door sedan with a visible license plate reading 'JW2 402' and red taillights illuminated.\", \"appearance_details\": \"Silver paint, standard sedan body, clean exterior, no visible decals or damage.\", \"relationship\": \"Primary subject interacting with the stop sign in the foreground.\", \"location\": \"Center foreground, approaching the stop sign.\", \"relative_size\": \"Large within frame\", \"orientation\": \"Facing away from camera, moving forward towards the intersection.\", \"pose\": \"Vehicle in motion, positioned at the stop line.\", \"action\": \"Approaches the stop sign, brakes initially, then accelerates forward through the intersection.\", \"state_changes\": \"Transitions from braking at the stop line to accelerating through the intersection.\", \"clothing\": \"\", \"expression\": \"\", \"gender\": \"\", \"age\": \"\", \"skin_tone_and_texture\": \"\", \"facial_features\": \"\", \"number_of_subjects\": 0, \"number_of_arms\": 0, \"number_of_legs\": 0}, {\"description\": \"A white commercial van with a visible driver inside, traveling across a perpendicular intersection.\", \"appearance_details\": \"White body, dark tinted windows, standard commercial van design, license plate visible.\", \"relationship\": \"Crosses the intersection perpendicularly, passing in front of the camera's view.\", \"location\": \"Left foreground moving to right background.\", \"relative_size\": \"Medium within frame\", \"orientation\": \"Profile view, moving from left to right.\", \"pose\": \"Vehicle in motion.\", \"action\": \"Drives from the left intersection across to the right side of the frame.\", \"state_changes\": \"Moves across the field of view and exits the frame.\", \"clothing\": \"\", \"expression\": \"\", \"gender\": \"\", \"age\": \"\", \"skin_tone_and_texture\": \"\", \"facial_features\": \"\", \"number_of_subjects\": 0, \"number_of_arms\": 0, \"number_of_legs\": 0}, {\"description\": \"A black SUV parked on the street in the background near a stop sign.\", \"appearance_details\": \"Black paint, boxy SUV design, stationary on the road shoulder.\", \"relationship\": \"Background object, providing context for the street setting.\", \"location\": \"Mid-background near an intersection.\", \"relative_size\": \"Small within frame\", \"orientation\": \"Facing forward along the street.\", \"pose\": \"Stationary.\", \"action\": \"Remains parked at the stop sign.\", \"state_changes\": \"No significant change.\", \"clothing\": \"\", \"expression\": \"\", \"gender\": \"\", \"age\": \"\", \"skin_tone_and_texture\": \"\", \"facial_features\": \"\", \"number_of_subjects\": 0, \"number_of_arms\": 0, \"number_of_legs\": 0}], \"background_setting\": \"A quiet suburban intersection on an overcast day. The road features a central median with a zebra crossing and a double yellow line. On either side, residential streets are lined with green lawns, mature trees, and single-family homes with brick and siding exteriors. Traffic signal poles and utility poles with overhead wires are visible. The crosswalk is clearly painted in white stripes.\", \"lighting\": {\"conditions\": \"Overcast daylight\", \"direction\": \"Diffuse top-down lighting\", \"shadows\": \"Soft and minimal, with no distinct directional shadows.\", \"illumination_effect\": \"Even illumination across the scene with low contrast.\"}, \"aesthetics\": {\"composition\": \"Symmetrical composition centered on the intersection, with leading lines from the crosswalk, stop lines, and median converging toward the intersection.\", \"color_scheme\": \"Muted earthy tones: gray asphalt, green foliage, white crosswalk lines, and the silver sedan as the principal color.\", \"mood_atmosphere\": \"Calm, quiet, and orderly suburban ambiance.\", \"patterns\": \"Rhythmic crosswalk stripes and parallel curb markings.\"}, \"cinematography\": {\"camera_motion\": \"Static\", \"framing\": \"Wide shot\", \"camera_angle\": \"High angle, bird's-eye view looking down at the intersection.\", \"depth_of_field\": \"Deep\", \"focus\": \"Uniform focus throughout the scene.\", \"lens_focal_length\": \"Wide-angle\"}, \"style_medium\": \"Live-action video\", \"artistic_style\": \"Realistic suburban documentation\", \"context\": \"Traffic management or urban planning documentation, possibly from a fixed traffic camera system.\", \"actions\": [{\"time\": \"0:00-0:01\", \"description\": \"The silver sedan is at the stop line, pressing its brakes as it approaches the intersection.\"}, {\"time\": \"0:01-0:02\", \"description\": \"The sedan stops briefly but then begins to accelerate forward, leaving the stop line.\"}, {\"time\": \"0:02-0:05\", \"description\": \"The sedan drives through the intersection, crossing into the road on the right. A white van crosses from left to right in the opposite intersection at the same time. The black SUV remains parked in the background.\"}], \"text_and_signage_elements\": [{\"text\": \"STOP\", \"category\": \"physical_in_scene\", \"appearance\": \"Standard red octagonal sign with white capital letters.\", \"spatial_temporal\": \"Large sign in the foreground to the right of the sedan, visible throughout the video.\", \"context\": \"Traffic control instruction.\"}, {\"text\": \"JW2 402\", \"category\": \"physical_in_scene\", \"appearance\": \"Black text on a white license plate.\", \"spatial_temporal\": \"Visible on the rear of the silver sedan from 0:00-0:02 and 0:03-0:05.\", \"context\": \"Vehicle identification plate.\"}, {\"text\": \"16,9\", \"category\": \"scene_sign\", \"appearance\": \"Standard street width sign mounted on a pole.\", \"spatial_temporal\": \"Visible in the background at the beginning of the video.\", \"context\": \"Street designation.\"}, {\"text\": \"1200 WEST\", \"category\": \"scene_sign\", \"appearance\": \"Standard street name sign.\", \"spatial_temporal\": \"Visible in the background near the parked SUV.\", \"context\": \"Street address.\"}], \"segments\": [{\"segment_index\": 0, \"time_range\": \"0:00-0:02\", \"description\": \"The silver sedan approaches the stop sign and begins braking before accelerating away.\", \"key_changes\": \"Transition from braking to acceleration at the stop line.\", \"camera\": \"Static high-angle wide shot.\"}, {\"segment_index\": 1, \"time_range\": \"0:02-0:05\", \"description\": \"The sedan crosses the intersection while a white van crosses the perpendicular street. The black SUV remains stationary in the background.\", \"key_changes\": \"Multiple vehicles cross the intersection in succession.\", \"camera\": \"Static high-angle wide shot.\"}], \"transitions\": [], \"temporal_caption\": \"A static high-angle view captures a silver sedan approaching a suburban intersection, briefly braking at a stop line, then accelerating forward. A white van crosses the perpendicular road to the right, while a black SUV remains parked in the background.\", \"audio_description\": \"Ambient suburban soundscape: distant traffic hum, faint car engines, light wind, and occasional bird calls from the trees. No distinct vehicular engine noise beyond those instances.\", \"resolution\": {\"H\": 480, \"W\": 832}, \"aspect_ratio\": \"16,9\", \"duration\": \"5s\", \"fps\": 24}",
+      "stop_zone": {
+        "polygon": [
+          [
+            0.38,
+            0.58
+          ],
+          [
+            0.67,
+            0.58
+          ],
+          [
+            0.68,
+            0.85
+          ],
+          [
+            0.33,
+            0.85
+          ]
+        ],
+        "approach_direction": "N",
+        "compliance_thresholds": {}
+      },
+      "speed_calibration": {
+        "gate_a": [
+          [
+            0.31,
+            0.88
+          ],
+          [
+            0.69,
+            0.88
+          ]
+        ],
+        "gate_b": [
+          [
+            0.38,
+            0.58
+          ],
+          [
+            0.67,
+            0.58
+          ]
+        ],
+        "real_world_distance_m": 8.0,
+        "posted_speed_kph": 40.0,
+        "assumption": "8 m between gates is an estimate from car length on screen, not a survey"
+      },
+      "matches_prompt": null,
+      "checked_by": null
+    },
+    {
+      "id": "pedestrian_from_behind_car",
+      "event": "a pedestrian steps into the crosswalk from behind a parked car",
+      "file": "pedestrian_from_behind_car.mp4",
+      "starting_frame": "pedestrian_from_behind_car_start.png",
+      "starting_frame_sha256": "a03b5a291e7644419312715a380c5786c95dc8291ea831934c73398cfd6e0da2",
+      "starting_frame_source": "ue_P3a_queue_both_stop_COMPLIANT.mp4 at 3.5 s",
+      "short_prompt": "The white pickup truck and the black car behind it stay parked at the stop line. A pedestrian in a red jacket steps out from behind the parked pickup truck into the crosswalk and walks across the street in front of it. Fixed elevated traffic camera that does not move, daytime, overcast light, quiet suburban four-way intersection with a stop sign, crosswalk and stop line. Realistic motion, no camera shake, no cuts.",
+      "upsampled_prompt": "{\"subjects\": [{\"description\": \"A white pickup truck with a crew cab and a short bed, parked at an intersection.\", \"appearance_details\": \"Standard white pickup truck design, visible taillights, rear window, and license plate area.\", \"relationship\": \"Parked behind the black car, with a pedestrian walking across the street in front of it.\", \"location\": \"Center of the frame, on the intersection road.\", \"relative_size\": \"Large within frame\", \"orientation\": \"Facing away from the camera, angled slightly to the right.\", \"pose\": \"Stationary, parked upright on the road.\", \"action\": \"Parked at the stop line.\", \"state_changes\": \"No significant change.\", \"clothing\": \"\", \"expression\": \"\", \"gender\": \"\", \"age\": \"\", \"skin_tone_and_texture\": \"\", \"facial_features\": \"\", \"number_of_subjects\": 1, \"number_of_arms\": 0, \"number_of_legs\": 0}, {\"description\": \"A black sedan, parked behind the white pickup truck, facing away from the camera.\", \"appearance_details\": \"Dark-colored four-door sedan with visible taillights, rear window, and license plate area.\", \"relationship\": \"Parked in front of the white pickup truck.\", \"location\": \"Center of the frame, on the intersection road.\", \"relative_size\": \"Large within frame\", \"orientation\": \"Facing away from the camera, angled slightly to the right.\", \"pose\": \"Stationary, parked upright on the road.\", \"action\": \"Parked at the stop line.\", \"state_changes\": \"No significant change.\", \"clothing\": \"\", \"expression\": \"\", \"gender\": \"\", \"age\": \"\", \"skin_tone_and_texture\": \"\", \"facial_features\": \"\", \"number_of_subjects\": 1, \"number_of_arms\": 0, \"number_of_legs\": 0}, {\"description\": \"A pedestrian wearing a red jacket and dark pants, walking across the street and stepping onto the crosswalk.\", \"appearance_details\": \"Red jacket, dark pants, footwear visible as they walk; partially obscured by the parked vehicles.\", \"relationship\": \"Walking in front of the white pickup truck.\", \"location\": \"Center of the frame, in the middle of the intersection crossing.\", \"relative_size\": \"Medium within frame\", \"orientation\": \"Profile view, moving leftward relative to the camera.\", \"pose\": \"Walking upright, stepping carefully across the crosswalk.\", \"action\": \"Walking from one side of the street to the other, entering the crosswalk.\", \"state_changes\": \"Moves from the left side of the crosswalk to the right side.\", \"clothing\": \"Red jacket, dark pants, footwear.\", \"expression\": \"Neutral (partially obscured).\", \"gender\": \"Unknown\", \"age\": \"Adult\", \"skin_tone_and_texture\": \"Indeterminate due to distance and partial obstruction.\", \"facial_features\": \"\", \"number_of_subjects\": 1, \"number_of_arms\": 2, \"number_of_legs\": 2}], \"background_setting\": \"A suburban intersection with two-way roads, crosswalks, sidewalks, and residential houses on both sides. There are green lawns, mature trees, utility poles, and overhead power lines. The road surface is asphalt with painted yellow double lines and white crosswalk stripes. A 'STOP' sign is located on the right side of the intersection. The weather appears clear and overcast with daylight conditions.\", \"lighting\": {\"conditions\": \"Overcast daylight\", \"direction\": \"Diffuse top-down lighting with no clear directional source.\", \"shadows\": \"Soft, indistinct shadows beneath vehicles and trees.\", \"illumination_effect\": \"Even illumination with low contrast due to overcast sky.\"}, \"aesthetics\": {\"composition\": \"Centered perspective looking straight down at the intersection, with the vehicles on the central vertical axis.\", \"color_scheme\": \"Muted palette of grays (road, sky), greens (lawns, trees), and the stark white and black of the vehicles.\", \"mood_atmosphere\": \"Quiet, mundane, everyday suburban atmosphere.\", \"patterns\": \"Repeating crosswalk stripes and parallel road markings.\"}, \"cinematography\": {\"camera_motion\": \"Static\", \"framing\": \"Wide shot\", \"camera_angle\": \"High angle, bird's-eye view looking straight down at the intersection.\", \"depth_of_field\": \"Deep\", \"focus\": \"Sharp focus across the entire intersection scene.\", \"lens_focal_length\": \"Wide-angle\"}, \"style_medium\": \"Live-action video\", \"artistic_style\": \"Realistic documentary\", \"context\": \"A typical suburban traffic scene captured from a traffic-camera or elevated observation point, showing vehicles parked and a pedestrian crossing.\", \"actions\": [{\"time\": \"0:00-0:02\", \"description\": \"The white pickup truck and black car are stationary at the stop line. The pedestrian starts walking across the crosswalk from left to right.\"}, {\"time\": \"0:02-0:05\", \"description\": \"The pedestrian continues stepping onto the crosswalk and progresses across the opposite side of the intersection.\"}, {\"time\": \"0:00-0:05\", \"description\": \"The overhead traffic camera remains static, capturing the scene with no visible movement in the vehicles or camera.\"}], \"text_and_signage_elements\": [{\"text\": \"STOP\", \"category\": \"scene_sign\", \"appearance\": \"Red octagonal sign with white lettering.\", \"spatial_temporal\": \"Right side of the intersection, visible throughout the entire frame.\", \"context\": \"Traffic control sign at the intersection.\"}, {\"text\": \"BUS TAXIS\", \"category\": \"physical_in_scene\", \"appearance\": \"Green rectangular sign with white text, mounted on a pole.\", \"spatial_temporal\": \"Left side of the intersection, stationary.\", \"context\": \"Public transit way station sign.\"}, {\"text\": \"40\", \"category\": \"scene_sign\", \"appearance\": \"Small green square sign with white text indicating lane number (BUS TAXIS).\", \"spatial_temporal\": \"Left side of the intersection, stationary.\", \"context\": \"Lane identification sign for the bus/taxicab lane.\"}, {\"text\": \"40\", \"category\": \"scene_sign\", \"appearance\": \"Small green square sign with white text indicating lane number (BUS TAXIS).\", \"spatial_temporal\": \"Right side of the intersection, stationary.\", \"context\": \"Lane identification sign for the bus/taxicab lane.\"}, {\"text\": \"ONLY\", \"category\": \"scene_sign\", \"appearance\": \"White painted letters in the center of the crosswalk.\", \"spatial_temporal\": \"Center of the crosswalk, visible throughout the frame.\", \"context\": \"Directional marking instructing pedestrians to proceed straight.\"}], \"segments\": [{\"segment_index\": 0, \"time_range\": \"0:00-0:05\", \"description\": \"The scene shows a static overhead view of a suburban intersection. A white pickup truck and a black car are parked at the stop line. A pedestrian wearing a red jacket walks across the crosswalk from left to right while vehicles remain stationary.\", \"key_changes\": \"Pedestrian's position changes as they cross the intersection.\", \"camera\": \"Static high-angle wide shot.\"}], \"transitions\": [], \"temporal_caption\": \"An overhead view captures a quiet suburban intersection on an overcast day. A white pickup truck and a black car are parked at the stop line. A pedestrian in a red jacket begins walking across the crosswalk in front of the pickup truck, progressing from left to right.\", \"audio_description\": \"Ambient suburban sounds include distant traffic hum, faint bird calls, and the soft footstep of a pedestrian's shoes on asphalt. No dialogue or music is present.\", \"resolution\": {\"H\": 480, \"W\": 832}, \"aspect_ratio\": \"16,9\", \"duration\": \"5s\", \"fps\": 24}",
+      "stop_zone": {
+        "polygon": [
+          [
+            0.36,
+            0.57
+          ],
+          [
+            0.64,
+            0.57
+          ],
+          [
+            0.66,
+            0.85
+          ],
+          [
+            0.33,
+            0.85
+          ]
+        ],
+        "approach_direction": "N",
+        "compliance_thresholds": {}
+      },
+      "speed_calibration": {
+        "gate_a": [
+          [
+            0.31,
+            0.88
+          ],
+          [
+            0.69,
+            0.88
+          ]
+        ],
+        "gate_b": [
+          [
+            0.36,
+            0.57
+          ],
+          [
+            0.64,
+            0.57
+          ]
+        ],
+        "real_world_distance_m": 8.0,
+        "posted_speed_kph": 40.0,
+        "assumption": "8 m between gates is an estimate from car length on screen, not a survey"
+      },
+      "matches_prompt": null,
+      "checked_by": null
+    }
+  ]
+}

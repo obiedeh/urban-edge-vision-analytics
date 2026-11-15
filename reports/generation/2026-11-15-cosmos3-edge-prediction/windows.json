@@ -1,0 +1,29 @@
+{
+  "note": "The 121-frame windows cut from the source clips, starting 1.0 s in, re-encoded with libx264 at crf 10. Kept outside git with the predicted clips; generation.json holds the predicted clips' SHA-256.",
+  "windows": {
+    "p1a_full_stop": {
+      "sha256": "7e596690bdf71e322c84ac6dde8aa78765e4d486ff78254807879a24b3db5312",
+      "size_bytes": 4976395
+    },
+    "p1b_rolling_stop": {
+      "sha256": "db8d41388eded2bd8a251bf23bb0f8d105f4f0932618d92acf8ee23409d293e7",
+      "size_bytes": 5190092
+    },
+    "p1c_no_stop": {
+      "sha256": "2ebb874df8289bbf8e88c62134e3c8e5489a37b48cfcde6fff3ab0332d2c5980",
+      "size_bytes": 5050496
+    },
+    "p2a_yields_to_pedestrian": {
+      "sha256": "eac7d7f488c85562e167ccc7a7db79d2b567e96367c21a8d830c32d326f6424f",
+      "size_bytes": 5005856
+    },
+    "p2b_fails_to_yield": {
+      "sha256": "910a38d93bc5d94256521bf9a8e9649f27cc2eb64f24db703fb4ae01f42f8403",
+      "size_bytes": 5626045
+    },
+    "p3a_queue_both_stop": {
+      "sha256": "785f30b0b3cbf6753cab091dd215a6ac3e8df971fe0770c0c04f17953fe10ee6",
+      "size_bytes": 4641658
+    }
+  }
+}

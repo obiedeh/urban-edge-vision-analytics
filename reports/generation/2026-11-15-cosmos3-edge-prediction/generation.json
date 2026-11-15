@@ -1,0 +1,222 @@
+{
+  "schema": "rare-event-clip-generation-v1",
+  "label": "generated footage; offline test data, not prediction",
+  "board": "jetson-agx-thor",
+  "checkpoint": "Cosmos3-Edge",
+  "seed": 20261115,
+  "generator_flags": [
+    "--no-use-torch-compile"
+  ],
+  "hf_hub_offline": true,
+  "idle_before": {
+    "n_samples": 59,
+    "vin_w_mean": 17.042338983050847,
+    "vin_w_p50": 16.766,
+    "vin_w_peak": 21.814,
+    "energy_wh": 0.27930499999999997,
+    "board_ram_used_mb_start": 29920.0,
+    "board_ram_used_mb_peak": 29920.0
+  },
+  "cooldown_seconds": 60,
+  "notes": [],
+  "clips": [
+    {
+      "name": "p1a_full_stop",
+      "started_at": "2026-11-15T07:35:51.873399+00:00",
+      "exit_code": 0,
+      "command": [
+        "python",
+        "-m",
+        "cosmos_framework.scripts.inference",
+        "-i",
+        "sample_p1a_full_stop.json",
+        "-o",
+        "p1a_full_stop",
+        "--checkpoint-path",
+        "Cosmos3-Edge",
+        "--seed=20261115",
+        "--no-use-torch-compile"
+      ],
+      "wall_seconds": 127.19715406297473,
+      "sampler_seconds": 97.0,
+      "board": {
+        "n_samples": 126,
+        "vin_w_mean": 79.60574603174604,
+        "vin_w_p50": 77.506,
+        "vin_w_peak": 161.866,
+        "energy_wh": 2.786201111111111,
+        "board_ram_used_mb_start": 29997.0,
+        "board_ram_used_mb_peak": 34601.0
+      },
+      "child_peak_rss_gb": 6.867958068847656,
+      "clip": "p1a_full_stop/p1a_full_stop/vision.mp4",
+      "clip_sha256": "c40e364cca0797a6dc534a2db1859383f3c641fcea9d82c087aaeea5c5d2af89",
+      "clip_bytes": 20355678
+    },
+    {
+      "name": "p1b_rolling_stop",
+      "started_at": "2026-11-15T07:38:59.117129+00:00",
+      "exit_code": 0,
+      "command": [
+        "python",
+        "-m",
+        "cosmos_framework.scripts.inference",
+        "-i",
+        "sample_p1b_rolling_stop.json",
+        "-o",
+        "p1b_rolling_stop",
+        "--checkpoint-path",
+        "Cosmos3-Edge",
+        "--seed=20261115",
+        "--no-use-torch-compile"
+      ],
+      "wall_seconds": 123.6884752230253,
+      "sampler_seconds": 95.0,
+      "board": {
+        "n_samples": 123,
+        "vin_w_mean": 86.39858536585366,
+        "vin_w_p50": 79.038,
+        "vin_w_peak": 160.312,
+        "energy_wh": 2.9519516666666665,
+        "board_ram_used_mb_start": 29998.0,
+        "board_ram_used_mb_peak": 34478.0
+      },
+      "child_peak_rss_gb": 6.867958068847656,
+      "clip": "p1b_rolling_stop/p1b_rolling_stop/vision.mp4",
+      "clip_sha256": "884b20c7bfa579ea35e4b9458e265b23b19795735d9aac9c8db9efdddcd2f99f",
+      "clip_bytes": 19238723
+    },
+    {
+      "name": "p1c_no_stop",
+      "started_at": "2026-11-15T07:42:02.845538+00:00",
+      "exit_code": 0,
+      "command": [
+        "python",
+        "-m",
+        "cosmos_framework.scripts.inference",
+        "-i",
+        "sample_p1c_no_stop.json",
+        "-o",
+        "p1c_no_stop",
+        "--checkpoint-path",
+        "Cosmos3-Edge",
+        "--seed=20261115",
+        "--no-use-torch-compile"
+      ],
+      "wall_seconds": 122.14750231005019,
+      "sampler_seconds": 94.0,
+      "board": {
+        "n_samples": 121,
+        "vin_w_mean": 87.9367438016529,
+        "vin_w_p50": 88.052,
+        "vin_w_peak": 168.984,
+        "energy_wh": 2.9556516666666663,
+        "board_ram_used_mb_start": 30042.0,
+        "board_ram_used_mb_peak": 35773.0
+      },
+      "child_peak_rss_gb": 6.867958068847656,
+      "clip": "p1c_no_stop/p1c_no_stop/vision.mp4",
+      "clip_sha256": "487632d3c691ec7b8cd62599f309a2514b80d7597e938d14496c7a5b53d8b2ca",
+      "clip_bytes": 19107782
+    },
+    {
+      "name": "p2a_yields_to_pedestrian",
+      "started_at": "2026-11-15T07:45:05.032094+00:00",
+      "exit_code": 0,
+      "command": [
+        "python",
+        "-m",
+        "cosmos_framework.scripts.inference",
+        "-i",
+        "sample_p2a_yields_to_pedestrian.json",
+        "-o",
+        "p2a_yields_to_pedestrian",
+        "--checkpoint-path",
+        "Cosmos3-Edge",
+        "--seed=20261115",
+        "--no-use-torch-compile"
+      ],
+      "wall_seconds": 123.23007942002732,
+      "sampler_seconds": 95.0,
+      "board": {
+        "n_samples": 122,
+        "vin_w_mean": 82.87026229508197,
+        "vin_w_p50": 77.57300000000001,
+        "vin_w_peak": 162.396,
+        "energy_wh": 2.808381111111111,
+        "board_ram_used_mb_start": 30033.0,
+        "board_ram_used_mb_peak": 34128.0
+      },
+      "child_peak_rss_gb": 6.868858337402344,
+      "clip": "p2a_yields_to_pedestrian/p2a_yields_to_pedestrian/vision.mp4",
+      "clip_sha256": "865a0d7a1a867efcb3cd6913486971d0e295910e54cfa2ca8c0b719502524cf5",
+      "clip_bytes": 20081829
+    },
+    {
+      "name": "p2b_fails_to_yield",
+      "started_at": "2026-11-15T07:48:08.288831+00:00",
+      "exit_code": 0,
+      "command": [
+        "python",
+        "-m",
+        "cosmos_framework.scripts.inference",
+        "-i",
+        "sample_p2b_fails_to_yield.json",
+        "-o",
+        "p2b_fails_to_yield",
+        "--checkpoint-path",
+        "Cosmos3-Edge",
+        "--seed=20261115",
+        "--no-use-torch-compile"
+      ],
+      "wall_seconds": 123.20370632602135,
+      "sampler_seconds": 95.0,
+      "board": {
+        "n_samples": 122,
+        "vin_w_mean": 88.8300655737705,
+        "vin_w_p50": 86.108,
+        "vin_w_peak": 165.24,
+        "energy_wh": 3.010352222222222,
+        "board_ram_used_mb_start": 30001.0,
+        "board_ram_used_mb_peak": 34179.0
+      },
+      "child_peak_rss_gb": 6.881900787353516,
+      "clip": "p2b_fails_to_yield/p2b_fails_to_yield/vision.mp4",
+      "clip_sha256": "bf9fbec9be50a8119f07aa915c3a7f4f99f36ca55168e4fc57304d80acd06b15",
+      "clip_bytes": 19012753
+    },
+    {
+      "name": "p3a_queue_both_stop",
+      "started_at": "2026-11-15T07:51:11.532057+00:00",
+      "exit_code": 0,
+      "command": [
+        "python",
+        "-m",
+        "cosmos_framework.scripts.inference",
+        "-i",
+        "sample_p3a_queue_both_stop.json",
+        "-o",
+        "p3a_queue_both_stop",
+        "--checkpoint-path",
+        "Cosmos3-Edge",
+        "--seed=20261115",
+        "--no-use-torch-compile"
+      ],
+      "wall_seconds": 123.72565812099492,
+      "sampler_seconds": 95.0,
+      "board": {
+        "n_samples": 123,
+        "vin_w_mean": 87.88865040650407,
+        "vin_w_p50": 77.862,
+        "vin_w_peak": 186.83,
+        "energy_wh": 3.0028622222222223,
+        "board_ram_used_mb_start": 30019.0,
+        "board_ram_used_mb_peak": 34221.0
+      },
+      "child_peak_rss_gb": 6.881900787353516,
+      "clip": "p3a_queue_both_stop/p3a_queue_both_stop/vision.mp4",
+      "clip_sha256": "a4bcb61baeff2cdaa3a5bb699add96a3e94770061238b9846b3c010e813ddaaf",
+      "clip_bytes": 21000002
+    }
+  ]
+}

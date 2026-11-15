@@ -1,0 +1,21 @@
+{
+  "name": "p1c_no_stop",
+  "model_mode": "video2video",
+  "vision_path": "windows/p1c_no_stop.mp4",
+  "condition_frame_indexes_vision": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+  ],
+  "condition_video_keep": "first",
+  "resolution": "480",
+  "aspect_ratio": "16,9",
+  "fps": 24,
+  "num_frames": 121,
+  "seed": 20261115,
+  "prompt": "A silver sedan drives toward the stop line. Fixed elevated traffic camera that does not move, daytime, overcast light, quiet suburban four-way intersection with a stop sign, crosswalk and stop line. Realistic motion, no camera shake, no cuts."
+}

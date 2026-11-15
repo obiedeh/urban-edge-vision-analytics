@@ -1,0 +1,33 @@
+{
+  "schema": "rare-event-prompt-check-v1",
+  "checked_on": "2026-11-15",
+  "checked_by": "owner",
+  "method": "watched each generated clip and compared it with the event its prompt asked for",
+  "clips": [
+    {
+      "id": "pedestrian_from_behind_car",
+      "round": 2,
+      "matches_prompt": "yes",
+      "observed": "The person comes from beside the pickup as asked."
+    },
+    {
+      "id": "roll_through",
+      "round": 2,
+      "matches_prompt": "yes",
+      "observed": "The sedan rolls through and no extra vehicle appears."
+    },
+    {
+      "id": "run_stop_cross_traffic",
+      "round": 2,
+      "matches_prompt": "no",
+      "observed": "Not realistic. The van appears beside the camera on the near side, crosses the near crosswalk and ends on the east corner; it is as large as the foreground sedan; the sedan does not move."
+    },
+    {
+      "id": "run_stop_cross_traffic",
+      "round": 3,
+      "matches_prompt": "yes",
+      "observed": "The van goes straight across the cross street from west to east (left to right) in front of the sedan.",
+      "note": "The van's starting heading is slightly angled, so at first it looks as if it may turn left. The angle comes from the van placed in the edited starting frame."
+    }
+  ]
+}

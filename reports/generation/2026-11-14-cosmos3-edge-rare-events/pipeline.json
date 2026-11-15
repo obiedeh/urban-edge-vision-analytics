@@ -1,0 +1,1212 @@
+{
+  "schema": "rare-event-clip-pipeline-v1",
+  "label": "generated footage, not a live camera; offline test data, not prediction",
+  "source_kind": "uploaded_generated",
+  "started_at": "2026-11-14T07:31:44.789267+00:00",
+  "finished_at": "2026-11-14T07:32:22.960593+00:00",
+  "measured_source_commit": "b7a34fd441bb6054f92adae407b94e74e13f4467",
+  "board": "jetson-agx-thor",
+  "machine": "aarch64",
+  "python": "3.12.3",
+  "detector": {
+    "name": "RT-DETR R18, pinned ONNX graph",
+    "model_sha256": "2fddddf032ce6979aea66815f254ccfc0fe16486b2bfdb0311b17e49ab1fc249",
+    "checkpoint": "PekingU/rtdetr_r18vd",
+    "revision": "ac77a11ff0170a41b771c03264987f8ce2b0d753",
+    "execution_contract": "CPU-fp32-ort-all-4threads",
+    "confidence_threshold": 0.5
+  },
+  "packs": "production PackRunner: stop_sign + moving_object, and speed_violation",
+  "plan_sha256": "34abaadbd7b1b7047d9bb8ef581f03d4c56198d7bc5d21fcc36c1b77a8583b2d",
+  "generation": {
+    "model": "nvidia/Cosmos3-Edge",
+    "mode": "image2video",
+    "resolution": "480",
+    "aspect_ratio": "16,9",
+    "num_frames": 121,
+    "seed": 20261114,
+    "prompt_upsampler": "cosmos_framework.inference.prompt_upsampling, mode image2video, served by nvidia/Cosmos3-Edge reasoner",
+    "framework_commit": "1f1737931214166d5e7b253def319c562cf7a1eb",
+    "checkpoint_revision": "6afc1256321c3a8e623d89be3bc5117a1e90f96b",
+    "flags": [
+      "--no-use-torch-compile"
+    ]
+  },
+  "clips": [
+    {
+      "id": "roll_through",
+      "event_asked_for": "a car rolls through the stop sign without stopping",
+      "file": "roll_through.mp4",
+      "sha256": "ba877945fb69d8f8a690ec4e9336cab705fa336fa95dd5e0325bdcf2ea1caffc",
+      "resolution": [
+        832,
+        480
+      ],
+      "frames_scored": 21,
+      "stride": 6,
+      "sample_period_s": 0.25,
+      "vehicles_detected": {
+        "max_in_one_frame": 2,
+        "frames_with_a_vehicle": 20,
+        "vehicle_tracks": 2
+      },
+      "pedestrian_detected": {
+        "frames_with_a_pedestrian": 0,
+        "pedestrian_tracks": 0,
+        "moving_object_events": 0
+      },
+      "stop_sign_verdicts": [
+        {
+          "pack": "stop_sign",
+          "at_s": 3.25,
+          "track_id": "t1",
+          "decision": "no_stop",
+          "dwell_ms": 2000,
+          "min_speed_in_zone": 0.1491,
+          "vehicle_type": "car"
+        }
+      ],
+      "speed_measurements": [
+        {
+          "pack": "speed_violation",
+          "at_s": 3.25,
+          "track_id": "t1",
+          "measured_speed": 12.8,
+          "unit": "kph",
+          "posted_speed": 40.0,
+          "vehicle_type": "car"
+        }
+      ],
+      "detector_latency_ms": {
+        "p50": 527.3319910047576,
+        "max": 554.6422349871136
+      },
+      "stop_zone": {
+        "polygon": [
+          [
+            0.36,
+            0.5
+          ],
+          [
+            0.67,
+            0.5
+          ],
+          [
+            0.7,
+            0.82
+          ],
+          [
+            0.3,
+            0.82
+          ]
+        ],
+        "approach_direction": "N",
+        "compliance_thresholds": {}
+      },
+      "speed_calibration": {
+        "gate_a": [
+          [
+            0.28,
+            0.85
+          ],
+          [
+            0.72,
+            0.85
+          ]
+        ],
+        "gate_b": [
+          [
+            0.36,
+            0.5
+          ],
+          [
+            0.67,
+            0.5
+          ]
+        ],
+        "real_world_distance_m": 8.0,
+        "posted_speed_kph": 40.0,
+        "assumption": "8 m between gates is an estimate from car length on screen, not a survey"
+      },
+      "matches_prompt": null,
+      "checked_by": null,
+      "per_frame": [
+        {
+          "frame": 0,
+          "t_s": 0.0,
+          "vehicles": 0,
+          "pedestrians": 0,
+          "labels": []
+        },
+        {
+          "frame": 6,
+          "t_s": 0.25,
+          "vehicles": 1,
+          "pedestrians": 0,
+          "labels": [
+            "car"
+          ]
+        },
+        {
+          "frame": 12,
+          "t_s": 0.5,
+          "vehicles": 1,
+          "pedestrians": 0,
+          "labels": [
+            "car"
+          ]
+        },
+        {
+          "frame": 18,
+          "t_s": 0.75,
+          "vehicles": 1,
+          "pedestrians": 0,
+          "labels": [
+            "car"
+          ]
+        },
+        {
+          "frame": 24,
+          "t_s": 1.0,
+          "vehicles": 1,
+          "pedestrians": 0,
+          "labels": [
+            "car"
+          ]
+        },
+        {
+          "frame": 30,
+          "t_s": 1.25,
+          "vehicles": 1,
+          "pedestrians": 0,
+          "labels": [
+            "car"
+          ]
+        },
+        {
+          "frame": 36,
+          "t_s": 1.5,
+          "vehicles": 1,
+          "pedestrians": 0,
+          "labels": [
+            "car"
+          ]
+        },
+        {
+          "frame": 42,
+          "t_s": 1.75,
+          "vehicles": 1,
+          "pedestrians": 0,
+          "labels": [
+            "car"
+          ]
+        },
+        {
+          "frame": 48,
+          "t_s": 2.0,
+          "vehicles": 1,
+          "pedestrians": 0,
+          "labels": [
+            "car"
+          ]
+        },
+        {
+          "frame": 54,
+          "t_s": 2.25,
+          "vehicles": 1,
+          "pedestrians": 0,
+          "labels": [
+            "car"
+          ]
+        },
+        {
+          "frame": 60,
+          "t_s": 2.5,
+          "vehicles": 1,
+          "pedestrians": 0,
+          "labels": [
+            "car"
+          ]
+        },
+        {
+          "frame": 66,
+          "t_s": 2.75,
+          "vehicles": 1,
+          "pedestrians": 0,
+          "labels": [
+            "car"
+          ]
+        },
+        {
+          "frame": 72,
+          "t_s": 3.0,
+          "vehicles": 1,
+          "pedestrians": 0,
+          "labels": [
+            "car"
+          ]
+        },
+        {
+          "frame": 78,
+          "t_s": 3.25,
+          "vehicles": 1,
+          "pedestrians": 0,
+          "labels": [
+            "car"
+          ]
+        },
+        {
+          "frame": 84,
+          "t_s": 3.5,
+          "vehicles": 1,
+          "pedestrians": 0,
+          "labels": [
+            "car"
+          ]
+        },
+        {
+          "frame": 90,
+          "t_s": 3.75,
+          "vehicles": 1,
+          "pedestrians": 0,
+          "labels": [
+            "car"
+          ]
+        },
+        {
+          "frame": 96,
+          "t_s": 4.0,
+          "vehicles": 1,
+          "pedestrians": 0,
+          "labels": [
+            "car"
+          ]
+        },
+        {
+          "frame": 102,
+          "t_s": 4.25,
+          "vehicles": 1,
+          "pedestrians": 0,
+          "labels": [
+            "car"
+          ]
+        },
+        {
+          "frame": 108,
+          "t_s": 4.5,
+          "vehicles": 2,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 114,
+          "t_s": 4.75,
+          "vehicles": 2,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 120,
+          "t_s": 5.0,
+          "vehicles": 2,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car"
+          ]
+        }
+      ],
+      "events": [
+        {
+          "pack": "stop_sign",
+          "at_s": 3.25,
+          "track_id": "t1",
+          "decision": "no_stop",
+          "dwell_ms": 2000,
+          "min_speed_in_zone": 0.1491,
+          "vehicle_type": "car"
+        },
+        {
+          "pack": "speed_violation",
+          "at_s": 3.25,
+          "track_id": "t1",
+          "measured_speed": 12.8,
+          "unit": "kph",
+          "posted_speed": 40.0,
+          "vehicle_type": "car"
+        }
+      ]
+    },
+    {
+      "id": "run_stop_cross_traffic",
+      "event_asked_for": "a car runs the stop at speed while another car crosses",
+      "file": "run_stop_cross_traffic.mp4",
+      "sha256": "97b7d0733b0e84e6fc9902b6794623f1dd39194ba306e6e236810f2182e1b915",
+      "resolution": [
+        832,
+        480
+      ],
+      "frames_scored": 21,
+      "stride": 6,
+      "sample_period_s": 0.25,
+      "vehicles_detected": {
+        "max_in_one_frame": 4,
+        "frames_with_a_vehicle": 21,
+        "vehicle_tracks": 4
+      },
+      "pedestrian_detected": {
+        "frames_with_a_pedestrian": 0,
+        "pedestrian_tracks": 0,
+        "moving_object_events": 0
+      },
+      "stop_sign_verdicts": [
+        {
+          "pack": "stop_sign",
+          "at_s": 3.25,
+          "track_id": "t1",
+          "decision": "rolling_stop",
+          "dwell_ms": 1000,
+          "min_speed_in_zone": 0.0748,
+          "vehicle_type": "car"
+        }
+      ],
+      "speed_measurements": [
+        {
+          "pack": "speed_violation",
+          "at_s": 3.25,
+          "track_id": "t1",
+          "measured_speed": 19.2,
+          "unit": "kph",
+          "posted_speed": 40.0,
+          "vehicle_type": "car"
+        }
+      ],
+      "detector_latency_ms": {
+        "p50": 519.6929069934413,
+        "max": 521.9808190013282
+      },
+      "stop_zone": {
+        "polygon": [
+          [
+            0.38,
+            0.58
+          ],
+          [
+            0.67,
+            0.58
+          ],
+          [
+            0.68,
+            0.85
+          ],
+          [
+            0.33,
+            0.85
+          ]
+        ],
+        "approach_direction": "N",
+        "compliance_thresholds": {}
+      },
+      "speed_calibration": {
+        "gate_a": [
+          [
+            0.31,
+            0.88
+          ],
+          [
+            0.69,
+            0.88
+          ]
+        ],
+        "gate_b": [
+          [
+            0.38,
+            0.58
+          ],
+          [
+            0.67,
+            0.58
+          ]
+        ],
+        "real_world_distance_m": 8.0,
+        "posted_speed_kph": 40.0,
+        "assumption": "8 m between gates is an estimate from car length on screen, not a survey"
+      },
+      "matches_prompt": null,
+      "checked_by": null,
+      "per_frame": [
+        {
+          "frame": 0,
+          "t_s": 0.0,
+          "vehicles": 3,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 6,
+          "t_s": 0.25,
+          "vehicles": 3,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 12,
+          "t_s": 0.5,
+          "vehicles": 3,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 18,
+          "t_s": 0.75,
+          "vehicles": 3,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 24,
+          "t_s": 1.0,
+          "vehicles": 3,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 30,
+          "t_s": 1.25,
+          "vehicles": 3,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 36,
+          "t_s": 1.5,
+          "vehicles": 3,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 42,
+          "t_s": 1.75,
+          "vehicles": 3,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 48,
+          "t_s": 2.0,
+          "vehicles": 4,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 54,
+          "t_s": 2.25,
+          "vehicles": 4,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 60,
+          "t_s": 2.5,
+          "vehicles": 4,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 66,
+          "t_s": 2.75,
+          "vehicles": 4,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 72,
+          "t_s": 3.0,
+          "vehicles": 4,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 78,
+          "t_s": 3.25,
+          "vehicles": 4,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 84,
+          "t_s": 3.5,
+          "vehicles": 4,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 90,
+          "t_s": 3.75,
+          "vehicles": 4,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 96,
+          "t_s": 4.0,
+          "vehicles": 4,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 102,
+          "t_s": 4.25,
+          "vehicles": 4,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 108,
+          "t_s": 4.5,
+          "vehicles": 4,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 114,
+          "t_s": 4.75,
+          "vehicles": 4,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 120,
+          "t_s": 5.0,
+          "vehicles": 4,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car",
+            "car"
+          ]
+        }
+      ],
+      "events": [
+        {
+          "pack": "stop_sign",
+          "at_s": 3.25,
+          "track_id": "t1",
+          "decision": "rolling_stop",
+          "dwell_ms": 1000,
+          "min_speed_in_zone": 0.0748,
+          "vehicle_type": "car"
+        },
+        {
+          "pack": "speed_violation",
+          "at_s": 3.25,
+          "track_id": "t1",
+          "measured_speed": 19.2,
+          "unit": "kph",
+          "posted_speed": 40.0,
+          "vehicle_type": "car"
+        }
+      ]
+    },
+    {
+      "id": "pedestrian_from_behind_car",
+      "event_asked_for": "a pedestrian steps into the crosswalk from behind a parked car",
+      "file": "pedestrian_from_behind_car.mp4",
+      "sha256": "eec8556b342a77c57d02e213f1ea4708111809bec2dbc1aa1f6b0798d746acf5",
+      "resolution": [
+        832,
+        480
+      ],
+      "frames_scored": 21,
+      "stride": 6,
+      "sample_period_s": 0.25,
+      "vehicles_detected": {
+        "max_in_one_frame": 7,
+        "frames_with_a_vehicle": 21,
+        "vehicle_tracks": 10
+      },
+      "pedestrian_detected": {
+        "frames_with_a_pedestrian": 19,
+        "pedestrian_tracks": 1,
+        "moving_object_events": 5
+      },
+      "stop_sign_verdicts": [
+        {
+          "pack": "stop_sign",
+          "at_s": 2.5,
+          "track_id": "t9",
+          "decision": "rolling_stop",
+          "dwell_ms": 750,
+          "min_speed_in_zone": 0.0,
+          "vehicle_type": "truck"
+        },
+        {
+          "pack": "stop_sign",
+          "at_s": 5.75,
+          "track_id": "t10",
+          "decision": "compliant",
+          "dwell_ms": 1750,
+          "min_speed_in_zone": 0.0,
+          "vehicle_type": "truck",
+          "after_clip_end": true
+        },
+        {
+          "pack": "stop_sign",
+          "at_s": 6.0,
+          "track_id": "t6",
+          "decision": "compliant",
+          "dwell_ms": 5000,
+          "min_speed_in_zone": 0.0,
+          "vehicle_type": "car",
+          "after_clip_end": true
+        }
+      ],
+      "speed_measurements": [],
+      "detector_latency_ms": {
+        "p50": 520.1936269877478,
+        "max": 522.3678239854053
+      },
+      "stop_zone": {
+        "polygon": [
+          [
+            0.36,
+            0.57
+          ],
+          [
+            0.64,
+            0.57
+          ],
+          [
+            0.66,
+            0.85
+          ],
+          [
+            0.33,
+            0.85
+          ]
+        ],
+        "approach_direction": "N",
+        "compliance_thresholds": {}
+      },
+      "speed_calibration": {
+        "gate_a": [
+          [
+            0.31,
+            0.88
+          ],
+          [
+            0.69,
+            0.88
+          ]
+        ],
+        "gate_b": [
+          [
+            0.36,
+            0.57
+          ],
+          [
+            0.64,
+            0.57
+          ]
+        ],
+        "real_world_distance_m": 8.0,
+        "posted_speed_kph": 40.0,
+        "assumption": "8 m between gates is an estimate from car length on screen, not a survey"
+      },
+      "matches_prompt": null,
+      "checked_by": null,
+      "per_frame": [
+        {
+          "frame": 0,
+          "t_s": 0.0,
+          "vehicles": 6,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car",
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 6,
+          "t_s": 0.25,
+          "vehicles": 6,
+          "pedestrians": 1,
+          "labels": [
+            "car",
+            "car",
+            "car",
+            "car",
+            "car",
+            "car",
+            "pedestrian"
+          ]
+        },
+        {
+          "frame": 12,
+          "t_s": 0.5,
+          "vehicles": 7,
+          "pedestrians": 1,
+          "labels": [
+            "car",
+            "car",
+            "car",
+            "car",
+            "car",
+            "pedestrian",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 18,
+          "t_s": 0.75,
+          "vehicles": 7,
+          "pedestrians": 1,
+          "labels": [
+            "car",
+            "car",
+            "car",
+            "pedestrian",
+            "car",
+            "car",
+            "car",
+            "truck"
+          ]
+        },
+        {
+          "frame": 24,
+          "t_s": 1.0,
+          "vehicles": 7,
+          "pedestrians": 1,
+          "labels": [
+            "car",
+            "car",
+            "pedestrian",
+            "car",
+            "car",
+            "car",
+            "car",
+            "truck"
+          ]
+        },
+        {
+          "frame": 30,
+          "t_s": 1.25,
+          "vehicles": 7,
+          "pedestrians": 1,
+          "labels": [
+            "car",
+            "pedestrian",
+            "car",
+            "car",
+            "car",
+            "car",
+            "car",
+            "truck"
+          ]
+        },
+        {
+          "frame": 36,
+          "t_s": 1.5,
+          "vehicles": 7,
+          "pedestrians": 1,
+          "labels": [
+            "car",
+            "pedestrian",
+            "car",
+            "car",
+            "car",
+            "car",
+            "car",
+            "truck"
+          ]
+        },
+        {
+          "frame": 42,
+          "t_s": 1.75,
+          "vehicles": 6,
+          "pedestrians": 1,
+          "labels": [
+            "car",
+            "car",
+            "pedestrian",
+            "car",
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 48,
+          "t_s": 2.0,
+          "vehicles": 6,
+          "pedestrians": 1,
+          "labels": [
+            "car",
+            "pedestrian",
+            "car",
+            "car",
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 54,
+          "t_s": 2.25,
+          "vehicles": 6,
+          "pedestrians": 1,
+          "labels": [
+            "car",
+            "car",
+            "car",
+            "pedestrian",
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 60,
+          "t_s": 2.5,
+          "vehicles": 6,
+          "pedestrians": 1,
+          "labels": [
+            "car",
+            "car",
+            "car",
+            "car",
+            "pedestrian",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 66,
+          "t_s": 2.75,
+          "vehicles": 6,
+          "pedestrians": 1,
+          "labels": [
+            "car",
+            "car",
+            "car",
+            "pedestrian",
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 72,
+          "t_s": 3.0,
+          "vehicles": 7,
+          "pedestrians": 1,
+          "labels": [
+            "car",
+            "car",
+            "car",
+            "pedestrian",
+            "car",
+            "car",
+            "car",
+            "truck"
+          ]
+        },
+        {
+          "frame": 78,
+          "t_s": 3.25,
+          "vehicles": 6,
+          "pedestrians": 1,
+          "labels": [
+            "car",
+            "car",
+            "pedestrian",
+            "car",
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 84,
+          "t_s": 3.5,
+          "vehicles": 7,
+          "pedestrians": 1,
+          "labels": [
+            "car",
+            "car",
+            "pedestrian",
+            "car",
+            "car",
+            "car",
+            "car",
+            "truck"
+          ]
+        },
+        {
+          "frame": 90,
+          "t_s": 3.75,
+          "vehicles": 6,
+          "pedestrians": 1,
+          "labels": [
+            "car",
+            "car",
+            "car",
+            "pedestrian",
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 96,
+          "t_s": 4.0,
+          "vehicles": 7,
+          "pedestrians": 1,
+          "labels": [
+            "car",
+            "pedestrian",
+            "car",
+            "car",
+            "car",
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 102,
+          "t_s": 4.25,
+          "vehicles": 6,
+          "pedestrians": 1,
+          "labels": [
+            "car",
+            "car",
+            "pedestrian",
+            "car",
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 108,
+          "t_s": 4.5,
+          "vehicles": 7,
+          "pedestrians": 1,
+          "labels": [
+            "pedestrian",
+            "car",
+            "car",
+            "car",
+            "car",
+            "car",
+            "car",
+            "truck"
+          ]
+        },
+        {
+          "frame": 114,
+          "t_s": 4.75,
+          "vehicles": 7,
+          "pedestrians": 1,
+          "labels": [
+            "car",
+            "car",
+            "pedestrian",
+            "car",
+            "car",
+            "car",
+            "truck",
+            "car"
+          ]
+        },
+        {
+          "frame": 120,
+          "t_s": 5.0,
+          "vehicles": 6,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car",
+            "car",
+            "car",
+            "car"
+          ]
+        }
+      ],
+      "events": [
+        {
+          "pack": "moving_object",
+          "at_s": 0.5,
+          "track_id": "t7",
+          "person_descriptor": "walking pedestrian (far)"
+        },
+        {
+          "pack": "moving_object",
+          "at_s": 1.5,
+          "track_id": "t7",
+          "person_descriptor": "walking pedestrian (far)"
+        },
+        {
+          "pack": "stop_sign",
+          "at_s": 2.5,
+          "track_id": "t9",
+          "decision": "rolling_stop",
+          "dwell_ms": 750,
+          "min_speed_in_zone": 0.0,
+          "vehicle_type": "truck"
+        },
+        {
+          "pack": "moving_object",
+          "at_s": 2.5,
+          "track_id": "t7",
+          "person_descriptor": "walking pedestrian (mid)"
+        },
+        {
+          "pack": "moving_object",
+          "at_s": 3.5,
+          "track_id": "t7",
+          "person_descriptor": "walking pedestrian (mid)"
+        },
+        {
+          "pack": "moving_object",
+          "at_s": 4.5,
+          "track_id": "t7",
+          "person_descriptor": "walking pedestrian (mid)"
+        },
+        {
+          "pack": "stop_sign",
+          "at_s": 5.75,
+          "track_id": "t10",
+          "decision": "compliant",
+          "dwell_ms": 1750,
+          "min_speed_in_zone": 0.0,
+          "vehicle_type": "truck",
+          "after_clip_end": true
+        },
+        {
+          "pack": "stop_sign",
+          "at_s": 6.0,
+          "track_id": "t6",
+          "decision": "compliant",
+          "dwell_ms": 5000,
+          "min_speed_in_zone": 0.0,
+          "vehicle_type": "car",
+          "after_clip_end": true
+        }
+      ]
+    }
+  ],
+  "limits": [
+    "Generated clips test whether the pipeline reacts; they do not measure real-world accuracy.",
+    "The generator's model card says its output is not physically accurate simulation; motion and speed in a generated clip are not ground truth.",
+    "Small sample: three events, three starting frames, one board, one session.",
+    "The generator ran at BF16, the only precision its model card lists as tested.",
+    "Stop zones, gates and the gate distance are hand-drawn assumptions on the starting frame."
+  ]
+}
