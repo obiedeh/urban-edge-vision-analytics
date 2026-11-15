@@ -1,0 +1,411 @@
+{
+  "schema": "rare-event-clip-pipeline-v1",
+  "label": "generated footage, not a live camera; offline test data, not prediction",
+  "source_kind": "uploaded_generated",
+  "started_at": "2026-11-15T15:18:25.399899+00:00",
+  "finished_at": "2026-11-15T15:18:38.156395+00:00",
+  "measured_source_commit": "b7a34fd441bb6054f92adae407b94e74e13f4467",
+  "board": "jetson-agx-thor",
+  "machine": "aarch64",
+  "python": "3.12.3",
+  "detector": {
+    "name": "RT-DETR R18, pinned ONNX graph",
+    "model_sha256": "2fddddf032ce6979aea66815f254ccfc0fe16486b2bfdb0311b17e49ab1fc249",
+    "checkpoint": "PekingU/rtdetr_r18vd",
+    "revision": "ac77a11ff0170a41b771c03264987f8ce2b0d753",
+    "execution_contract": "CPU-fp32-ort-all-4threads",
+    "confidence_threshold": 0.5
+  },
+  "packs": "production PackRunner: stop_sign + moving_object, and speed_violation",
+  "plan_sha256": "be212733419116cbeb3c3278eb176f4b5fc700c47bb95d56ca4ae2d9a82b3053",
+  "generation": {
+    "model": "nvidia/Cosmos3-Edge",
+    "mode": "image2video",
+    "resolution": "480",
+    "aspect_ratio": "16,9",
+    "num_frames": 121,
+    "seed": 20261114,
+    "prompt_upsampler": "cosmos_framework.inference.prompt_upsampling, mode image2video, served by nvidia/Cosmos3-Edge reasoner",
+    "framework_commit": "1f1737931214166d5e7b253def319c562cf7a1eb",
+    "checkpoint_revision": "6afc1256321c3a8e623d89be3bc5117a1e90f96b",
+    "flags": [
+      "--no-use-torch-compile"
+    ]
+  },
+  "clips": [
+    {
+      "id": "run_stop_cross_traffic_r3",
+      "event_asked_for": "a car runs the stop at speed while another car crosses",
+      "file": "run_stop_cross_traffic_r3.mp4",
+      "sha256": "24723d0107bd9cd8ead1e37b995f51bdf43f3b1c2292b992b47d51d59a37ad8f",
+      "resolution": [
+        832,
+        480
+      ],
+      "frames_scored": 21,
+      "stride": 6,
+      "sample_period_s": 0.25,
+      "vehicles_detected": {
+        "max_in_one_frame": 5,
+        "frames_with_a_vehicle": 21,
+        "vehicle_tracks": 5
+      },
+      "pedestrian_detected": {
+        "frames_with_a_pedestrian": 0,
+        "pedestrian_tracks": 0,
+        "moving_object_events": 0
+      },
+      "stop_sign_verdicts": [
+        {
+          "pack": "stop_sign",
+          "at_s": 4.5,
+          "track_id": "t1",
+          "decision": "rolling_stop",
+          "dwell_ms": 1500,
+          "min_speed_in_zone": 0.0718,
+          "vehicle_type": "car"
+        }
+      ],
+      "speed_measurements": [
+        {
+          "pack": "speed_violation",
+          "at_s": 4.5,
+          "track_id": "t1",
+          "measured_speed": 14.4,
+          "unit": "kph",
+          "posted_speed": 40.0,
+          "vehicle_type": "car"
+        }
+      ],
+      "detector_latency_ms": {
+        "p50": 521.3183870073408,
+        "max": 548.7197559559718
+      },
+      "stop_zone": {
+        "polygon": [
+          [
+            0.38,
+            0.58
+          ],
+          [
+            0.67,
+            0.58
+          ],
+          [
+            0.68,
+            0.85
+          ],
+          [
+            0.33,
+            0.85
+          ]
+        ],
+        "approach_direction": "N",
+        "compliance_thresholds": {}
+      },
+      "speed_calibration": {
+        "gate_a": [
+          [
+            0.31,
+            0.88
+          ],
+          [
+            0.69,
+            0.88
+          ]
+        ],
+        "gate_b": [
+          [
+            0.38,
+            0.58
+          ],
+          [
+            0.67,
+            0.58
+          ]
+        ],
+        "real_world_distance_m": 8.0,
+        "posted_speed_kph": 40.0,
+        "assumption": "8 m between gates is an estimate from car length on screen, not a survey"
+      },
+      "matches_prompt": null,
+      "checked_by": null,
+      "per_frame": [
+        {
+          "frame": 0,
+          "t_s": 0.0,
+          "vehicles": 4,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 6,
+          "t_s": 0.25,
+          "vehicles": 4,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 12,
+          "t_s": 0.5,
+          "vehicles": 4,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 18,
+          "t_s": 0.75,
+          "vehicles": 4,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 24,
+          "t_s": 1.0,
+          "vehicles": 4,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car",
+            "truck"
+          ]
+        },
+        {
+          "frame": 30,
+          "t_s": 1.25,
+          "vehicles": 4,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 36,
+          "t_s": 1.5,
+          "vehicles": 4,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 42,
+          "t_s": 1.75,
+          "vehicles": 4,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 48,
+          "t_s": 2.0,
+          "vehicles": 4,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 54,
+          "t_s": 2.25,
+          "vehicles": 5,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car",
+            "truck",
+            "car"
+          ]
+        },
+        {
+          "frame": 60,
+          "t_s": 2.5,
+          "vehicles": 4,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 66,
+          "t_s": 2.75,
+          "vehicles": 4,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "truck",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 72,
+          "t_s": 3.0,
+          "vehicles": 4,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 78,
+          "t_s": 3.25,
+          "vehicles": 4,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car",
+            "truck"
+          ]
+        },
+        {
+          "frame": 84,
+          "t_s": 3.5,
+          "vehicles": 4,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 90,
+          "t_s": 3.75,
+          "vehicles": 3,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 96,
+          "t_s": 4.0,
+          "vehicles": 3,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 102,
+          "t_s": 4.25,
+          "vehicles": 3,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 108,
+          "t_s": 4.5,
+          "vehicles": 3,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 114,
+          "t_s": 4.75,
+          "vehicles": 3,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car"
+          ]
+        },
+        {
+          "frame": 120,
+          "t_s": 5.0,
+          "vehicles": 3,
+          "pedestrians": 0,
+          "labels": [
+            "car",
+            "car",
+            "car"
+          ]
+        }
+      ],
+      "events": [
+        {
+          "pack": "stop_sign",
+          "at_s": 4.5,
+          "track_id": "t1",
+          "decision": "rolling_stop",
+          "dwell_ms": 1500,
+          "min_speed_in_zone": 0.0718,
+          "vehicle_type": "car"
+        },
+        {
+          "pack": "speed_violation",
+          "at_s": 4.5,
+          "track_id": "t1",
+          "measured_speed": 14.4,
+          "unit": "kph",
+          "posted_speed": 40.0,
+          "vehicle_type": "car"
+        }
+      ]
+    }
+  ],
+  "limits": [
+    "Generated clips test whether the pipeline reacts; they do not measure real-world accuracy.",
+    "The generator's model card says its output is not physically accurate simulation; motion and speed in a generated clip are not ground truth.",
+    "Small sample: three events, three starting frames, one board, one session.",
+    "The generator ran at BF16, the only precision its model card lists as tested.",
+    "Stop zones, gates and the gate distance are hand-drawn assumptions on the starting frame."
+  ]
+}

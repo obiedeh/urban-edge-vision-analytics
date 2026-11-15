@@ -1,0 +1,24 @@
+{
+  "schema": "rare-event-prompt-check-v1",
+  "checked_on": "2026-11-15",
+  "checked_by": "owner",
+  "method": "watched each generated clip and compared it with the event its prompt asked for",
+  "note": "plan.json and pipeline.json are measured records and keep matches_prompt and checked_by as null; this file holds the check.",
+  "clips": [
+    {
+      "id": "roll_through",
+      "matches_prompt": "partly",
+      "observed": "The silver sedan rolls through the stop. A second vehicle that the prompt did not ask for appears in the adjacent intersection on the right, facing the wrong direction."
+    },
+    {
+      "id": "run_stop_cross_traffic",
+      "matches_prompt": "no",
+      "observed": "The second car overtakes the sedan on the same road, going straight. It does not cross from left to right."
+    },
+    {
+      "id": "pedestrian_from_behind_car",
+      "matches_prompt": "partly",
+      "observed": "A person in a red jacket crosses in front of a white pickup parked at the stop sign, with another car behind the pickup. The person does not come from behind the pickup."
+    }
+  ]
+}

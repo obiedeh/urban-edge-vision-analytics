@@ -1,0 +1,57 @@
+{
+  "schema": "rare-event-clip-generation-v1",
+  "label": "generated footage; offline test data, not prediction",
+  "board": "jetson-agx-thor",
+  "checkpoint": "Cosmos3-Edge",
+  "seed": 20261114,
+  "generator_flags": [
+    "--no-use-torch-compile"
+  ],
+  "hf_hub_offline": true,
+  "idle_before": {
+    "n_samples": 19,
+    "vin_w_mean": 16.49663157894737,
+    "vin_w_p50": 16.636,
+    "vin_w_peak": 17.452,
+    "energy_wh": 0.08706555555555556,
+    "board_ram_used_mb_start": 30094.0,
+    "board_ram_used_mb_peak": 30094.0
+  },
+  "cooldown_seconds": 5.0,
+  "notes": [],
+  "clips": [
+    {
+      "name": "run_stop_cross_traffic_r3",
+      "started_at": "2026-11-15T08:31:47.115519+00:00",
+      "exit_code": 0,
+      "command": [
+        "python",
+        "-m",
+        "cosmos_framework.scripts.inference",
+        "-i",
+        "sample_run_stop_cross_traffic_r3.json",
+        "-o",
+        "run_stop_cross_traffic_r3",
+        "--checkpoint-path",
+        "Cosmos3-Edge",
+        "--seed=20261114",
+        "--no-use-torch-compile"
+      ],
+      "wall_seconds": 119.79364333499689,
+      "sampler_seconds": 97.0,
+      "board": {
+        "n_samples": 119,
+        "vin_w_mean": 81.73142857142857,
+        "vin_w_p50": 74.568,
+        "vin_w_peak": 169.528,
+        "energy_wh": 2.7016777777777774,
+        "board_ram_used_mb_start": 30378.0,
+        "board_ram_used_mb_peak": 35839.0
+      },
+      "child_peak_rss_gb": 6.867393493652344,
+      "clip": "run_stop_cross_traffic_r3/run_stop_cross_traffic_r3/vision.mp4",
+      "clip_sha256": "24723d0107bd9cd8ead1e37b995f51bdf43f3b1c2292b992b47d51d59a37ad8f",
+      "clip_bytes": 14002646
+    }
+  ]
+}

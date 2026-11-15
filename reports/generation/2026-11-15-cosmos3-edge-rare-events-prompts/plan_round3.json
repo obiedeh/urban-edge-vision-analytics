@@ -1,0 +1,80 @@
+{
+  "schema": "rare-event-clip-plan-v1",
+  "frozen": "round three: the 2026-11-14 zones and gates unchanged; the starting frame is the 2026-11-14 frame with a white van placed on the west side of the cross street; the prompt was rewritten by hand",
+  "generation": {
+    "model": "nvidia/Cosmos3-Edge",
+    "mode": "image2video",
+    "resolution": "480",
+    "aspect_ratio": "16,9",
+    "num_frames": 121,
+    "seed": 20261114,
+    "prompt_upsampler": "cosmos_framework.inference.prompt_upsampling, mode image2video, served by nvidia/Cosmos3-Edge reasoner",
+    "framework_commit": "1f1737931214166d5e7b253def319c562cf7a1eb",
+    "checkpoint_revision": "6afc1256321c3a8e623d89be3bc5117a1e90f96b",
+    "flags": [
+      "--no-use-torch-compile"
+    ]
+  },
+  "starting_frames_note": "Starting frames are stills from the existing stop-sign scene clips, which are themselves generated footage.",
+  "clips": [
+    {
+      "id": "run_stop_cross_traffic_r3",
+      "event": "a car runs the stop at speed while another car crosses",
+      "file": "run_stop_cross_traffic_r3.mp4",
+      "starting_frame": "run_stop_cross_traffic_start.png",
+      "starting_frame_sha256": "b6ce5241eeb096f9e3808f2c5627da4a4777d48aeb2eb6e2c442b188dff34627",
+      "starting_frame_source": "ue_P1a_full_stop_COMPLIANT.mp4 at 2.0 s",
+      "short_prompt": "The silver sedan accelerates and drives straight through the stop sign at speed without braking, while a second car crosses the intersection from left to right on the cross street directly ahead of it, a near miss. Fixed elevated traffic camera that does not move, daytime, overcast light, quiet suburban four-way intersection with a stop sign, crosswalk and stop line. Realistic motion, no camera shake, no cuts.",
+      "upsampled_prompt": "{\"subjects\": [{\"description\": \"A silver four-door sedan with a visible license plate reading 'JW2 402' and red taillights illuminated.\", \"appearance_details\": \"Silver paint, standard sedan body, clean exterior, no visible decals or damage.\", \"relationship\": \"Primary subject interacting with the stop sign in the foreground.\", \"location\": \"Center foreground, approaching the stop sign.\", \"relative_size\": \"Large within frame\", \"orientation\": \"Facing away from camera, moving forward towards the intersection.\", \"pose\": \"Vehicle in motion, positioned at the stop line.\", \"action\": \"Approaches the stop sign, brakes initially, then accelerates forward through the intersection.\", \"state_changes\": \"Transitions from braking at the stop line to accelerating through the intersection.\", \"clothing\": \"\", \"expression\": \"\", \"gender\": \"\", \"age\": \"\", \"skin_tone_and_texture\": \"\", \"facial_features\": \"\", \"number_of_subjects\": 0, \"number_of_arms\": 0, \"number_of_legs\": 0}, {\"description\": \"A white commercial van with a visible driver inside, traveling across a perpendicular intersection.\", \"appearance_details\": \"White body, dark tinted windows, standard commercial van design, license plate visible.\", \"relationship\": \"Crosses the intersection perpendicularly, passing in front of the camera's view.\", \"location\": \"Left foreground moving to right background.\", \"relative_size\": \"Medium within frame\", \"orientation\": \"Profile view, moving from left to right.\", \"pose\": \"Vehicle in motion.\", \"action\": \"Drives from the left intersection across to the right side of the frame.\", \"state_changes\": \"Moves across the field of view and exits the frame.\", \"clothing\": \"\", \"expression\": \"\", \"gender\": \"\", \"age\": \"\", \"skin_tone_and_texture\": \"\", \"facial_features\": \"\", \"number_of_subjects\": 0, \"number_of_arms\": 0, \"number_of_legs\": 0}, {\"description\": \"A black SUV parked on the street in the background near a stop sign.\", \"appearance_details\": \"Black paint, boxy SUV design, stationary on the road shoulder.\", \"relationship\": \"Background object, providing context for the street setting.\", \"location\": \"Mid-background near an intersection.\", \"relative_size\": \"Small within frame\", \"orientation\": \"Facing forward along the street.\", \"pose\": \"Stationary.\", \"action\": \"Remains parked at the stop sign.\", \"state_changes\": \"No significant change.\", \"clothing\": \"\", \"expression\": \"\", \"gender\": \"\", \"age\": \"\", \"skin_tone_and_texture\": \"\", \"facial_features\": \"\", \"number_of_subjects\": 0, \"number_of_arms\": 0, \"number_of_legs\": 0}], \"background_setting\": \"A quiet suburban intersection on an overcast day. The road features a central median with a zebra crossing and a double yellow line. On either side, residential streets are lined with green lawns, mature trees, and single-family homes with brick and siding exteriors. Traffic signal poles and utility poles with overhead wires are visible. The crosswalk is clearly painted in white stripes.\", \"lighting\": {\"conditions\": \"Overcast daylight\", \"direction\": \"Diffuse top-down lighting\", \"shadows\": \"Soft and minimal, with no distinct directional shadows.\", \"illumination_effect\": \"Even illumination across the scene with low contrast.\"}, \"aesthetics\": {\"composition\": \"Symmetrical composition centered on the intersection, with leading lines from the crosswalk, stop lines, and median converging toward the intersection.\", \"color_scheme\": \"Muted earthy tones: gray asphalt, green foliage, white crosswalk lines, and the silver sedan as the principal color.\", \"mood_atmosphere\": \"Calm, quiet, and orderly suburban ambiance.\", \"patterns\": \"Rhythmic crosswalk stripes and parallel curb markings.\"}, \"cinematography\": {\"camera_motion\": \"Static\", \"framing\": \"Wide shot\", \"camera_angle\": \"High angle, bird's-eye view looking down at the intersection.\", \"depth_of_field\": \"Deep\", \"focus\": \"Uniform focus throughout the scene.\", \"lens_focal_length\": \"Wide-angle\"}, \"style_medium\": \"Live-action video\", \"artistic_style\": \"Realistic suburban documentation\", \"context\": \"Traffic management or urban planning documentation, possibly from a fixed traffic camera system.\", \"actions\": [{\"time\": \"0:00-0:01\", \"description\": \"The silver sedan is at the stop line, pressing its brakes as it approaches the intersection.\"}, {\"time\": \"0:01-0:02\", \"description\": \"The sedan stops briefly but then begins to accelerate forward, leaving the stop line.\"}, {\"time\": \"0:02-0:05\", \"description\": \"The sedan drives through the intersection, crossing into the road on the right. A white van crosses from left to right in the opposite intersection at the same time. The black SUV remains parked in the background.\"}], \"text_and_signage_elements\": [{\"text\": \"STOP\", \"category\": \"physical_in_scene\", \"appearance\": \"Standard red octagonal sign with white capital letters.\", \"spatial_temporal\": \"Large sign in the foreground to the right of the sedan, visible throughout the video.\", \"context\": \"Traffic control instruction.\"}, {\"text\": \"JW2 402\", \"category\": \"physical_in_scene\", \"appearance\": \"Black text on a white license plate.\", \"spatial_temporal\": \"Visible on the rear of the silver sedan from 0:00-0:02 and 0:03-0:05.\", \"context\": \"Vehicle identification plate.\"}, {\"text\": \"16,9\", \"category\": \"scene_sign\", \"appearance\": \"Standard street width sign mounted on a pole.\", \"spatial_temporal\": \"Visible in the background at the beginning of the video.\", \"context\": \"Street designation.\"}, {\"text\": \"1200 WEST\", \"category\": \"scene_sign\", \"appearance\": \"Standard street name sign.\", \"spatial_temporal\": \"Visible in the background near the parked SUV.\", \"context\": \"Street address.\"}], \"segments\": [{\"segment_index\": 0, \"time_range\": \"0:00-0:02\", \"description\": \"The silver sedan approaches the stop sign and begins braking before accelerating away.\", \"key_changes\": \"Transition from braking to acceleration at the stop line.\", \"camera\": \"Static high-angle wide shot.\"}, {\"segment_index\": 1, \"time_range\": \"0:02-0:05\", \"description\": \"The sedan crosses the intersection while a white van crosses the perpendicular street. The black SUV remains stationary in the background.\", \"key_changes\": \"Multiple vehicles cross the intersection in succession.\", \"camera\": \"Static high-angle wide shot.\"}], \"transitions\": [], \"temporal_caption\": \"A static high-angle view captures a silver sedan approaching a suburban intersection, briefly braking at a stop line, then accelerating forward. A white van crosses the perpendicular road to the right, while a black SUV remains parked in the background.\", \"audio_description\": \"Ambient suburban soundscape: distant traffic hum, faint car engines, light wind, and occasional bird calls from the trees. No distinct vehicular engine noise beyond those instances.\", \"resolution\": {\"H\": 480, \"W\": 832}, \"aspect_ratio\": \"16,9\", \"duration\": \"5s\", \"fps\": 24}",
+      "stop_zone": {
+        "polygon": [
+          [
+            0.38,
+            0.58
+          ],
+          [
+            0.67,
+            0.58
+          ],
+          [
+            0.68,
+            0.85
+          ],
+          [
+            0.33,
+            0.85
+          ]
+        ],
+        "approach_direction": "N",
+        "compliance_thresholds": {}
+      },
+      "speed_calibration": {
+        "gate_a": [
+          [
+            0.31,
+            0.88
+          ],
+          [
+            0.69,
+            0.88
+          ]
+        ],
+        "gate_b": [
+          [
+            0.38,
+            0.58
+          ],
+          [
+            0.67,
+            0.58
+          ]
+        ],
+        "real_world_distance_m": 8.0,
+        "posted_speed_kph": 40.0,
+        "assumption": "8 m between gates is an estimate from car length on screen, not a survey"
+      },
+      "matches_prompt": null,
+      "checked_by": null
+    }
+  ]
+}

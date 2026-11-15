@@ -140,6 +140,24 @@ CI runs lint, type checks, the Python tests and the web build on every push to `
 
 ---
 
+## Cosmos 3 on the Jetson AGX Thor: generated test events and prediction, 2026-11-14 and 2026-11-15
+
+**Generated footage throughout; offline test data, not live prediction, and no real-world accuracy is measured.** These runs were made with the full build of this project, which is not public. The generation and scoring scripts are part of the full build; the reports, prompts, plans and per-clip records are committed here so every number can be read from a record. The clips are kept outside git; the records hold their SHA-256.
+
+**Rare events drawn with Cosmos 3 Edge** ([report](reports/generation/2026-11-14-cosmos3-edge-rare-events/README.md)). Rare, dangerous intersection events cannot be filmed on purpose. Cosmos 3 Edge (4B) drew three five-second clips from stills of the stop-sign scenes on `jetson-agx-thor`: a car rolling through the stop, a car running the stop with cross traffic, and a pedestrian stepping out from behind a parked pickup. Each took 116 to 125 s end to end at about 2.6 Wh. The pinned RT-DETR R18 detector and the production packs scored them offline: a violation verdict for the moving car in both stop-sign clips, and the pedestrian detected in 19 of 21 scored frames. Watched by a person, none of the three showed its event in full.
+
+**Writing prompts the generator follows** ([report](reports/generation/2026-11-15-cosmos3-edge-rare-events-prompts/README.md)). The misses came partly from the framework's prompt upsampler, which contradicted the short prompts: it turned "never stops" into "stops precisely at the STOP line". With everything but the prompt held fixed:
+
+| Event | Upsampled prompt | Hand-written prompt (compass directions, exclusions, timing) | Hand-written prompt and the second vehicle placed in the starting frame |
+|---|---|---|---|
+| Pedestrian steps out from behind the pickup | Partly | **Yes** | |
+| Car rolls through the stop | Partly | **Yes** | |
+| Car runs the stop with cross traffic | No | No | **Yes** |
+
+Specific wording fixed both single-actor events. The two-actor event also needed the second vehicle in the starting frame, because an actor that exists only in words is placed wherever the model chooses.
+
+**Predicting the next four seconds** ([report](reports/generation/2026-11-15-cosmos3-edge-prediction/README.md)). Cosmos 3 Edge was given only the first 25 frames (1.04 s) of six stop-sign scene clips and a neutral prompt that names no outcome, then generated the next four seconds. The real and the predicted five seconds were scored with the same detector, packs and zones. The stop-sign verdict matched on 2 of 6 clips and in part on 1; on both pedestrian clips the prediction gave the opposite verdict. One second of an approach does not fix what a driver does next, and the model continues it into one plausible future, not a forecast of the source clip. Each clip took 122 to 127 s and 2.8 to 3.0 Wh.
+
 ## Not yet measured
 
 The system runs end to end, but none of the following has a committed measurement yet. Treat any number you see elsewhere as unverified until an artifact under `artifacts/` backs it.
