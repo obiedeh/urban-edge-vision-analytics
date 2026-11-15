@@ -12,7 +12,7 @@ This is operational analysis with a human in the loop. It is not automated enfor
 
 This repository is the open core: camera setup in the UI, live video decoupled from inference, model selection with a memory preflight, the four use-case packs and operator review.
 
-**Urban Edge Pro** is developed privately on top of this core. It adds video feed connectors (RTSP links, USB cameras, browser and phone cameras, and uploaded footage) with a source label on every frame and event, plus upload and playback controls on the Live view. [See Urban Edge Pro](https://obiedeh.github.io/urban-edge-vision-analytics-pro.html). Source available on request.
+**The full build** is developed privately on top of this core. It adds video feed connectors (RTSP links, USB cameras, browser and phone cameras, and uploaded footage) with a source label on every frame and event, ground-plane tracking, pixel motion, cloud delivery that survives outages, and the Cosmos 3 runs reported below. [See the full build report](https://obiedeh.github.io/urban-edge-vision-analytics-full-build.html). Source available on request.
 
 ---
 
